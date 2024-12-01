@@ -89,6 +89,15 @@ function get_os_icon(os) {
   return `<div class="fa fa-${os}"></div>`
 }
 
+function first_gpu(unit) {
+  let info = unit.mach.get_info().gpus || {}
+
+  for (let gpu of (unit.assign.gpus || []))
+    if (gpu in info) return info[gpu];
+
+  return undefined
+}
+
 
 class Unit {
   constructor(ctx, unit, mach) {
@@ -118,6 +127,77 @@ class Unit {
   get os_title()    {return this.mach.get_os()}
   get paused()      {return !!this.unit.pause_reason}
   get work_server() {return this.assign.ws}
+
+
+  get gpu_pstate() {
+    let gpu = first_gpu(this)
+    if (!gpu || !gpu.pstate) return ''
+
+    return gpu.pstate
+  }
+
+
+  get gpu_power() {
+    let gpu = first_gpu(this)
+    if (!gpu || !gpu.max_gpu_power) return ''
+
+    return gpu.cur_gpu_power + ' / ' + gpu.max_gpu_power
+  }
+
+
+  get gpu_clock() {
+    let gpu = first_gpu(this)
+    if (!gpu || !gpu.max_gpu_clock) return ''
+
+    return gpu.cur_gpu_clock + ' / ' + gpu.max_gpu_clock
+  }
+
+
+  get mem_clock() {
+    let gpu = first_gpu(this)
+    if (!gpu || !gpu.max_mem_clock) return ''
+
+    return gpu.cur_mem_clock + ' / ' + gpu.max_mem_clock
+  }
+
+
+  get gpu_temp() {
+    let gpu = first_gpu(this)
+    if (!gpu || !gpu.cur_temp) return ''
+
+    return gpu.cur_temp
+  }
+
+
+  get gpu_fans() {
+    let gpu = first_gpu(this)
+    if (!gpu || !gpu.gpu_fans) return ''
+
+    let fan_speed = ''
+    for (let i = 0; i < gpu.gpu_fans; i++) {
+      if (i == 0) fan_speed = gpu.fan0_pct
+      else if (i == 1) fan_speed += (' / ' + gpu.fan1_pct)
+      else if (i == 2) fan_speed += (' / ' + gpu.fan2_pct)
+      else break
+    }
+    return fan_speed
+  }
+
+
+  get gpu_pcie_cur() {
+    let gpu = first_gpu(this)
+    if (!gpu || !gpu.pcie_link_current) return ''
+
+    return gpu.pcie_link_current
+  }
+
+
+  get gpu_pcie_max() {
+    let gpu = first_gpu(this)
+    if (!gpu || !gpu.pcie_link_system) return ''
+
+    return gpu.pcie_link_system
+  }
 
 
   get finish()  {
