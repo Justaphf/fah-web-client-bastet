@@ -62,7 +62,7 @@ export default {
 
     label
       background var(--table-header-bg)
-      width 8em
+      width 10em
 
     span
       flex 1
