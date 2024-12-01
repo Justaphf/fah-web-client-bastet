@@ -67,6 +67,18 @@ fieldset.view-panel.gpu-fieldset
     info-item(label="PCI Device ID", :content="'0x' + gpu.device.toString(16)")
     info-item(label="PCI Vendor ID", :content="'0x' + gpu.vendor.toString(16)")
 
+  .info-group(v-if="gpu.supported")
+    info-item(label="PCIe Link (Max)", :content="gpu.pcie_link_system + '(' + gpu.pcie_link_device + ')'")
+    info-item(label="PCIe Link (Current)", :content="gpu.pcie_link_system")
+
+  .info-group(v-if="gpu.supported")
+    info-item(label="GPU Clock (MHz)", :content="gpu.cur_gpu_clock.toString(10)+'/'+gpu.max_gpu_clock.toString(10)")
+    info-item(label="Mem Clock (MHz)", :content="gpu.max_mem_clock.toString(10)+'/'+gpu.max_mem_clock.toString(10)")
+
+  .info-group(v-if="gpu.supported")
+    info-item(label="PState", :content="gpu.pstate")
+    info-item(label="GPU Temp (C)", :content="gpu.cur_temp")
+
   .info-group(v-for="dev of devs")
     info-item(:label="dev.name",
       :content="(dev.supported ? '' : 'un') + 'supported'")
