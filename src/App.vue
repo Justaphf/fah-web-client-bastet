@@ -83,6 +83,13 @@ export default {
       this.set_dark(dark)
     },
 
+    togle_dark() {
+      let dark = (this.$adata.config || {}).dark
+      if (dark == undefined) dark = this.$util.retrieve_bool('fah-dark-mode')
+      this.$util.store_bool('fah-dark-mode', !dark)
+      this.set_dark(!dark)
+    },
+
 
     set_compact(compact) {this.$util.set_body_class(compact, 'theme-compact')},
     check_compact() {this.set_compact((this.$adata.config || {}).compact)},
