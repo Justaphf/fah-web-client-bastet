@@ -41,6 +41,9 @@ ViewHeader.main-header
   template(v-slot:center): slot(name="center")
 
   template(v-slot:actions)
+    Button.button-icon(:icon="$util.retrieve_bool('fah-dark-mode') ? 'moon-o' : 'sun-o'",
+      @click="$root.togle_dark()", title="Toggle dark mode.")
+
     Button.button-image(v-if="$adata.avatar", route="/account/",
       :image="$adata.avatar",
       :title="$adata.user + ': Account Settings and Logout'")
