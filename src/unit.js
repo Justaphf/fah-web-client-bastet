@@ -118,6 +118,17 @@ class Unit {
   get os_title()    {return this.mach.get_os()}
   get paused()      {return !!this.unit.pause_reason}
   get work_server() {return this.assign.ws}
+  get gpu_clock()   {return this.unit.gpu_clock}
+  get gpu_pstate()  {return this.unit.gpu_pstate}
+  get gpu_temp()    {return this.unit.gpu_temp}
+  get mem_clock()   {return this.unit.mem_clock}
+  get gpu_power()   {return this.unit.gpu_power}
+  get gpu_power_limit()   {return this.unit.gpu_power_limit}
+  get gpu_fans()    {return this.unit.gpu_fans}
+  get gpu_fan()     {return this.unit.gpu_fan}
+  get gpu_fan0()    {return this.unit.gpu_fan0}
+  get gpu_fan1()    {return this.unit.gpu_fan1}
+  get gpu_fan2()    {return this.unit.gpu_fan2}
 
 
   get finish()  {

@@ -100,7 +100,12 @@ export default {
   computed: {
     columns() {
       return ['Machine', 'Project', 'Core', 'OS', 'Status', 'Progress',
-        'TPF', 'PPD', 'Assign Time']
+        'TPF', 'PPD', 'Assign Time'
+        // TODO: Calculate min/max/avg over the life of the unit for display in the WU summary page
+        // NOTE: Probably makes sense to record how many and when pause/system restart events happen as well
+        //,'gpu_clock', 'gpu_temp', 'gpu_pstate', 'mem_clock', 'gpu_power'
+        //,'gpu_power_limit', 'gpu_fans', 'gpu_fan', 'gpu_fan0', 'gpu_fan1', 'gpu_fan2'
+        ]
     },
 
 

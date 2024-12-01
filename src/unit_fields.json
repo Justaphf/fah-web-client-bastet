@@ -30,5 +30,16 @@
   "Version":     {"desc": "Client version"},
   "Resources":   {"desc": "CPU and GPU compute resources", "align": "left"},
   "Group Name":  {"desc": "Resource group name", "header": "Group",
-                  "align": "left"}
+                  "align": "left"},
+  "gpu_clock":   {"desc": "The current GPU graphics clock speed, in MHz.", "header": "Clock (MHz)"},
+  "gpu_temp":    {"desc": "The current GPU core temperature, in degrees Celsius.", "header": "Temp (C)"},
+  "gpu_pstate":  {"desc": "The current GPU P-state.", "header": "P-State"},
+  "mem_clock":   {"desc": "The current GPU memory clock speed, in MHz.", "header": "Mem Clock (MHz)"},
+  "gpu_power":   {"desc": "The current GPU board power draw, in Watts.", "header": "Power (W)"},
+  "gpu_power_limit":   {"desc": "The maximum GPU board power draw, in Watts.", "header": "Power Limit (W)"},
+  "gpu_fans":    {"desc": "The number of independently addressable GPU fans.", "header":"Fans"},
+  "gpu_fan_pct": {"desc": "The current fan speed as a percent of the maximum accoding to the current noice profile.", "header": "Fan (%)"},
+  "gpu_fan0_pct": {"desc": "The current fan speed as a percent of the maximum accoding to the current noice profile.", "header": "Fan0 (%)"},
+  "gpu_fan1_pct": {"desc": "The current fan speed as a percent of the maximum accoding to the current noice profile.", "header": "Fan1 (%)"},
+  "gpu_fan2_pct": {"desc": "The current fan speed as a percent of the maximum accoding to the current noice profile.", "header": "Fan2 (%)"}
 }

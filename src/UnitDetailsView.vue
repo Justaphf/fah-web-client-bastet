@@ -113,6 +113,29 @@ export default {
         unit-info(:unit="unit", field="Project")
         unit-info(:unit="unit", field="RCG")
 
+      .info-group(v-if="unit.gpu_clock")
+        unit-info(:unit="unit", field="gpu_clock")
+        unit-info(:unit="unit", field="mem_clock")
+
+      .info-group(v-if="unit.gpu_clock")
+        unit-info(:unit="unit", field="gpu_pstate")
+        unit-info(:unit="unit", field="gpu_temp")
+
+      .info-group(v-if="unit.gpu_clock")
+        unit-info(:unit="unit", field="gpu_power")
+        unit-info(:unit="unit", field="gpu_power_limit")
+
+      .info-group(v-if="unit.gpu_fans > 0")
+        unit-info(:unit="unit", field="gpu_fans")
+        unit-info(:unit="unit", field="gpu_fan")
+
+      .info-group(v-if="unit.gpu_fans > 0")
+        unit-info(:unit="unit", field="gpu_fan0")
+        unit-info(:unit="unit", field="gpu_fan1")
+
+      .info-group(v-if="unit.gpu_fans > 2")
+        unit-info(:unit="unit", field="gpu_fan2")
+
     fieldset.view-panel
       legend Logged Credits
 
