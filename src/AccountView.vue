@@ -29,11 +29,12 @@
 <script>
 function copy_config(config = {}) {
   return {
-    dark:              config.dark,
-    columns:           (config.columns || []).concat([]),
-    wide:              !!config.wide,
-    compact:           !!config.compact,
-    hide_empty_groups: !!config.hide_empty_groups,
+    dark:               config.dark,
+    columns:            (config.columns || []).concat([]),
+    wide:               !!config.wide,
+    compact:            !!config.compact,
+    hide_empty_groups:  !!config.hide_empty_groups,
+    hide_group_headers: !!config.hide_group_headers,
   }
 }
 

@@ -87,6 +87,11 @@ fieldset.settings.view-panel
       Empty resource groups will still display under machine settings.
     input(v-model="config.hide_empty_groups", type="checkbox")
 
+  .setting.hide-group-headers-setting
+    HelpBalloon(name="Hide Group Headers"): p.
+      Hides the resource group header row on the Machines view.
+    input(v-model="config.hide_group_headers", type="checkbox")
+
   .columns-setting
     HelpBalloon(name="Work Unit Columns"): p.
       Drag and drop columns to change their position and visibility.
