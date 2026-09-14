@@ -21,6 +21,7 @@ Folding@home Web Control Changelog
  - Show a message when a WU has no visualization data.
  - Fix initial 3D viewer zoom, the bounds always contained the origin.
  - Keep the current frame when switching 3D viewer representation.
+ - Show arch next to OS name. #296
 
 ## v8.5.3
  - Added user timeseries charts

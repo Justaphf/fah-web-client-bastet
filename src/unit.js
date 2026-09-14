@@ -115,10 +115,16 @@ class Unit {
   get cpus()        {return this.unit.cpus}
   get gpus()        {return this.unit.gpus.length}
   get os()          {return get_os_icon(this.mach.get_os())}
-  get os_text()     {return this.os + this.os_title}
-  get os_title()    {return this.mach.get_os()}
+  get os_text()     {return `${this.os} ${this.os_title} ${this.os_arch}`}
+  get os_title()    {return this.mach.get_os() || ''}
   get paused()      {return !!this.unit.pause_reason}
   get work_server() {return this.assign.ws}
+
+
+  get os_arch() {
+    const {cpu} = this.mach.get_info()
+    return cpu === 'amd64' ? 'x64' : (cpu || '')
+  }
 
 
   get finish()  {
