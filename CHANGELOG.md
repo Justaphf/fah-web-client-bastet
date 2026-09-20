@@ -22,6 +22,7 @@ Folding@home Web Control Changelog
  - Fix initial 3D viewer zoom, the bounds always contained the origin.
  - Keep the current frame when switching 3D viewer representation.
  - Show arch next to OS name. #296
+ - Improved average PPD computation and est. total points on WUs tab.  @Br3ach
 
 ## v8.5.3
  - Added user timeseries charts

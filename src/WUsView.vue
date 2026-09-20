@@ -118,8 +118,11 @@ export default {
         filter_unit(this.filter, unit, 'os',       'os_title') &&
         filter_unit(this.filter, unit, 'state'               ) &&
         filter_unit(this.filter, unit, 'resources'           ) &&
-        (!this.filter.days || !isFinite(this.filter.days) ||
-          to_days(new Date()) - to_days(unit.assign.time) <= days) &&
+        (!this.filter.days || !isFinite(this.filter.days) || (() => {
+        let time = unit.unit.end_time || unit.assign.time
+        return to_days(new Date()) - to_days(time) <= days
+        })()) &&
+
         (!this.filter.complete || unit.wu_progress == 1)
       )
     },
@@ -136,9 +139,71 @@ export default {
     tpf_avg()   {return this.format_tpf(array_avg(this.wus, 'tpf_secs'))},
     ppd_min()   {return format_ppd(array_min(this.wus, 'ppd_raw'))},
     ppd_max()   {return format_ppd(array_max(this.wus, 'ppd_raw'))},
-    ppd_avg()   {return format_ppd(Math.round(array_avg(this.wus, 'ppd_raw')))},
-  },
+    ppd_avg()   {return format_ppd(this.historical_stats.ppd)},
 
+    ppd_current() {
+      let total = this.wus.reduce((sum, unit) => {
+        if (!['RUN', 'FINISH'].includes(unit.state)) return sum
+        return sum + (isFinite(unit.ppd_raw) ? unit.ppd_raw : 0)
+      }, 0)
+
+      return format_ppd(Math.round(total))
+    },
+
+
+    historical_stats() {
+      let points = 0
+      let count  = 0
+      let first  = undefined
+      let last   = undefined
+
+      for (let unit of this.wus) {
+        if (unit.state != 'CREDITED') continue
+
+        let ppd     = unit.ppd_raw
+        let seconds = unit.run_time_secs
+
+        if (!isFinite(ppd) || !isFinite(seconds) || seconds <= 0) continue
+
+        // Estimate points produced by this WU from its recorded PPD estimate.
+        points += ppd * seconds / 86400
+        count++
+
+        // Determine the wall-clock period covered by the retained history.
+        let start = new Date(unit.assign.time).getTime()
+        let end   = new Date(unit.unit.end_time).getTime()
+
+        // Older/incomplete history may not contain end_time.
+        if (!isFinite(end) && isFinite(start)) end = start + seconds * 1000
+        if (isFinite(start) && (!first || start < first)) first = start
+        if (isFinite(end) && (!last || last < end)) last = end
+      }
+
+      if (!count) return {}
+
+      let period = 0
+      let days   = parseFloat(this.filter.days)
+
+      // If "Within" is selected, that is the requested observation period.
+      // This correctly includes idle time within that period.
+      if (this.filter.days !== '' && isFinite(days) && 0 < days)
+        period = days * 86400
+
+      // Otherwise use the span of the locally retained matching history.
+      else if (first != undefined && last != undefined && first < last)
+        period = (last - first) / 1000
+
+      return {
+        ppd:    period ? Math.round(points * 86400 / period) : undefined,
+        credit: points,
+      }
+    },
+
+
+    credit_estimated_sum() {
+      return Math.round(this.historical_stats.credit).toLocaleString()
+    },
+  },
 
   created() {this.default_filter = Object.assign({}, this.filter)},
   mounted() {this.$machs.wus_enable(true)},
@@ -204,7 +269,7 @@ export default {
               option(value="Any") Any
               option(v-for="r in resources", :value="r") {{r}}
 
-          td(title="Only include units assigned within this number of days.")
+          td(title="Only include units within this number of days.")
             input(v-model="filter.days", type=number, placeholder="days",
               :class="{error: !isFinite(filter.days)}")
 
@@ -226,17 +291,31 @@ export default {
           th Max
 
       tbody
-        tr(title="Time Per Frame.  Time to complete 1% of the unit.")
-          th TPF
+        tr(title="Time Per Frame. Time to complete 1% of the unit.")
+          th
+            HelpBalloon(name="TPF"): p Time Per Frame
           td {{tpf_avg}}
           td {{tpf_min}}
           td {{tpf_max}}
 
         tr(title="Points Per Day")
-          th PPD
+          th
+            HelpBalloon(name="PPD"): p.
+              Estimated average, min and max over the selected period,
+              calculated from locally stored work unit PPD estimates and run
+              times. This is not based on the actual credit awarded.
+
           td {{ppd_avg}}
           td {{ppd_min}}
           td {{ppd_max}}
+
+        tr
+          th
+            HelpBalloon(name="Estimated Credit"): p.
+              Estimated points calculated from locally stored PPD estimates
+              and work unit run times. This may differ from the actual credit
+              awarded by Folding@home.
+          td(colspan="3") {{credit_estimated_sum}}
 
     HelpBalloon.header-title(name="Recent Work Unit History"): p.
       A log of recent work WUs completed by your machines.
