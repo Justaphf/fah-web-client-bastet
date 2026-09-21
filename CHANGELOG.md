@@ -12,6 +12,15 @@ Folding@home Web Control Changelog
  - Get news articles from new API endpoint.
  - Added log download log feature.
  - Color background of log lines in light mode, re:#291
+ - Build 3D viewer geometry once from the topology instead of once per frame.
+ - Faster bond placement in the 3D viewer.
+ - Fix duplicate 3D viewer render loops started on each incoming frame.
+ - Fix 3D viewer error on close when WebGL is unavailable.
+ - Free 3D viewer geometry and materials on close.
+ - Fix 3D viewer not drawing when the topology loads before the first frame.
+ - Show a message when a WU has no visualization data.
+ - Fix initial 3D viewer zoom, the bounds always contained the origin.
+ - Keep the current frame when switching 3D viewer representation.
 
 ## v8.5.3
  - Added user timeseries charts

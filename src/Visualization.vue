@@ -42,13 +42,21 @@ let HEAVY    = 999
 function toRadians(angle) {return angle * (Math.PI / 180)}
 
 
+// Scratch objects, reused to avoid allocating per bond
+const _pos   = new THREE.Vector3()
+const _dir   = new THREE.Vector3()
+const _scale = new THREE.Vector3(1, 1, 1)
+const _up    = new THREE.Vector3(0, 1, 0)
+const _quat  = new THREE.Quaternion()
+const _mat   = new THREE.Matrix4()
+
+
 export default {
   props: ['mach', 'unitID'],
 
 
   data() {
     return {
-      message:   'Loading...',
       pause:     false,
       dragging:  false,
       draw_type: 1,
@@ -64,12 +72,22 @@ export default {
     viz()       {return this.mach.get_viz(this.unitID)},
     topology()  {return this.viz.topology},
     positions() {return this.viz.frames},
-    frames()    {return this.positions ? this.positions.length : 0}
+    frames()    {return this.positions ? this.positions.length : 0},
+    atoms()     {return this.topology ? this.topology.atoms.length : 0},
+    drawable()  {return !!(this.atoms && this.frames)},
+
+    // An empty topology means the core had nothing to visualize
+    message() {
+      if (!this.topology) return 'Loading...'
+      if (!this.atoms) return 'No visualization available for this work unit'
+      return this.frames ? '' : 'Loading...'
+    }
   },
 
 
   watch: {
-    positions() {this.load()}
+    positions() {this.load()},
+    drawable()  {this.load()} // Boolean, so only fires on the 0 -> 1 frame edge
   },
 
 
@@ -78,6 +96,8 @@ export default {
     this.graphics()
     this.mach.visualize_unit(this.unitID)
     this.load()
+    this.render()
+    this.move_sun()
   },
 
 
@@ -86,7 +106,8 @@ export default {
     window.removeEventListener('resize', this.update_view)
     window.removeEventListener('keyup',  this.on_key_up)
     window.cancelAnimationFrame(this.animate)
-    this.renderer.dispose()
+    window.clearTimeout(this.sun_timer)
+    this.dispose()
     this.$util.set_body_class(false, 'fullscreen')
   },
 
@@ -96,12 +117,31 @@ export default {
 
 
     load() {
+      if (this.scene == undefined) return
       this.draw()
       this.update_view()
-      this.render()
+    },
 
-      this.message = ''
-      this.move_sun()
+
+    clear_protein() {
+      if (this.protein == undefined) return
+
+      this.protein.traverse(o => {
+        if (o.geometry)        o.geometry.dispose()
+        if (o.isInstancedMesh) o.dispose()
+      })
+
+      this.protein.clear()
+      this.atom_meshes = []
+      this.bond_mesh   = undefined
+    },
+
+
+    dispose() {
+      this.clear_protein()
+      for (let m of this.atom_materials || []) m.dispose()
+      if (this.bond_material) this.bond_material.dispose()
+      if (this.renderer)      this.renderer.dispose()
     },
 
 
@@ -117,26 +157,17 @@ export default {
       let u = this.sky.material.uniforms['sunPosition']
       u.value = new THREE.Vector3(x, y, z)
 
-      setTimeout(this.move_sun, 100)
+      this.sun_timer = setTimeout(this.move_sun, 100)
     },
 
 
     change_frame(frame) {
-      if (this.positions == undefined || this.positions.length < 2) return
-      if (this.positions.length <= frame) frame = 0
-      if (frame < 0) frame = this.positions.length - 1
+      if (this.frames < 2) return
+      if (this.frames <= frame) frame = 0
+      if (frame < 0) frame = this.frames - 1
 
-      let proteins = this.protein.children
-
-      for (let i = proteins.length; i < this.positions.length; i++)
-        this.protein.add(new THREE.Group)
-
-      if (!proteins[frame].children.length)
-        proteins[frame].add(this.draw_protein(frame, this.draw_type))
-
-      proteins[this.frame].visible = false
       this.frame = frame
-      proteins[this.frame].visible = true
+      this.update_frame()
     },
 
 
@@ -236,8 +267,8 @@ export default {
 
 
     render() {
-      this.animate = window.requestAnimationFrame(this.render)
       if (this.scene == undefined) return
+      this.animate = window.requestAnimationFrame(this.render)
 
       if (!this.dragging && !this.pause) {
         let delta = this.clock.getDelta()
@@ -323,12 +354,14 @@ export default {
     },
 
 
-    draw_atoms(index, draw_type) {
+    // Geometry depends only on the topology, so it is built once and each
+    // frame just rewrites the instance transforms.  See update_frame().
+    draw_atoms(draw_type) {
       let group = new THREE.Group()
+      let atoms = this.topology.atoms
 
       // Count types
       let atom_types = [0, 0, 0, 0, 0, 0]
-      let atoms = this.topology.atoms
       for (let i = 0; i < atoms.length; i++)
         atom_types[this.get_atom_type(atoms[i])]++
 
@@ -340,121 +373,128 @@ export default {
             this.get_atom_geometry(type, draw_type), this.atom_materials[type],
             atom_types[type])
 
+          mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
+          mesh.frustumCulled = false // Bounding sphere goes stale as it moves
+          mesh.userData.atoms = []   // Which atom fills each instance slot
           meshes[type] = mesh
           group.add(mesh)
         }
 
-      // Position atoms
-      let pos = this.positions[index]
-      const m = new THREE.Matrix4()
-      atom_types = [0, 0, 0, 0, 0, 0]
-      for (let i = 0; i < atoms.length; i++) {
-        let type = this.get_atom_type(atoms[i])
-        if (!meshes[type]) continue
+      for (let i = 0; i < atoms.length; i++)
+        meshes[this.get_atom_type(atoms[i])].userData.atoms.push(i)
 
-        m.makeTranslation(pos[i][0], pos[i][1], pos[i][2])
-        meshes[type].setMatrixAt(atom_types[type]++, m)
-      }
+      this.atom_meshes = meshes
 
       return group
     },
 
 
+    // The cylinder origin is at its base, so this just places and stretches it.
+    // Returns a shared matrix; copy it before the next call.
     get_bond_transform(a, b) {
-      let vA = new THREE.Vector3(a[0], a[1], a[2])
-      let vB = new THREE.Vector3(b[0], b[1], b[2])
-      let length = vA.distanceTo(vB)
+      _pos.fromArray(a)
+      _dir.fromArray(b).sub(_pos)
 
-      let m = new THREE.Matrix4()
-      m.makeTranslation(0, 0.5, 0)
-      m.premultiply(new THREE.Matrix4().makeScale(1, length, 1))
+      let length = _dir.length()
+      if (length) _quat.setFromUnitVectors(_up, _dir.divideScalar(length))
+      else _quat.identity()
 
-      // Rotate
-      let vec = vB.clone().sub(vA)
-      let h = vec.length()
-      vec.normalize()
+      _scale.set(1, length, 1)
 
-      let q = new THREE.Quaternion()
-      q.setFromUnitVectors(new THREE.Vector3(0, 1, 0), vec)
-
-      m.premultiply(new THREE.Matrix4().makeRotationFromQuaternion(q))
-
-      // Translate
-      m.premultiply(new THREE.Matrix4().makeTranslation(vA.x, vA.y, vA.z))
-
-      return m
+      return _mat.compose(_pos, _quat, _scale)
     },
 
 
-    draw_bonds(index) {
-      let pos   = this.positions[index]
-      let bonds = this.topology.bonds
-
+    draw_bonds() {
       // Scale resolution based on number of atoms
       let segs = 4
       if (this.topology.atoms.length < 10000) segs *= 2
       if (this.topology.atoms.length < 1000)  segs *= 2
 
       let geometry = new THREE.CylinderGeometry(0.01, 0.01, 1, segs, 1, true)
-      let mesh =
-          new THREE.InstancedMesh(geometry, this.bond_material, bonds.length)
+      geometry.translate(0, 0.5, 0) // Move origin to the base
 
-      // Set bond positions
-      for (let i = 0; i < bonds.length; i++) {
-        let a = pos[bonds[i][0]]
-        let b = pos[bonds[i][1]]
-        if (a != undefined && b != undefined)
-          mesh.setMatrixAt(i, this.get_bond_transform(a, b))
-      }
+      let mesh = new THREE.InstancedMesh(
+        geometry, this.bond_material, this.topology.bonds.length)
+
+      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
+      mesh.frustumCulled = false
+      this.bond_mesh = mesh
 
       return mesh
     },
 
 
-    draw_protein(index, draw_type) {
+    draw_protein(draw_type) {
       let group = new THREE.Group()
 
-      group.add(this.draw_atoms(index, draw_type))
+      group.add(this.draw_atoms(draw_type))
 
       if (draw_type == 2 || draw_type == 3)
-        group.add(this.draw_bonds(index))
-
-      // Find center
-      let pos = this.positions[index]
-      let center = new THREE.Vector3()
-      for (let p of pos) center.add(new THREE.Vector3(p[0], p[1], p[2]))
-      center.divideScalar(pos.length)
-
-      // Translate to center
-      group.translateX(-center.x)
-      group.translateY(-center.y)
-      group.translateZ(-center.z)
+        group.add(this.draw_bonds())
 
       return group
     },
 
 
-    compute_bounds(index) {
-      let bbox = new THREE.Box3(new THREE.Vector3, new THREE.Vector3)
+    // Point the shared meshes at the current frame
+    update_frame() {
+      let pos = this.positions[this.frame]
+      if (pos == undefined) return
 
-      if (this.topology != undefined)
-        for (let i = 0; i < this.topology.atoms.length; i++) {
-          let p = this.positions[index][i]
-          let v = new THREE.Vector3(p[0], p[1], p[2])
+      // Center the protein
+      let center = new THREE.Vector3()
+      for (let p of pos) center.add(_pos.fromArray(p))
+      center.divideScalar(pos.length)
+      this.protein.children[0].position.copy(center).negate()
 
-          bbox.expandByPoint(v)
+      for (let mesh of this.atom_meshes) {
+        if (mesh == undefined) continue
+        let atoms = mesh.userData.atoms
+
+        for (let i = 0; i < atoms.length; i++) {
+          let p = pos[atoms[i]]
+          mesh.setMatrixAt(i, _mat.makeTranslation(p[0], p[1], p[2]))
         }
+
+        mesh.instanceMatrix.needsUpdate = true
+      }
+
+      if (this.bond_mesh == undefined) return
+
+      let bonds = this.topology.bonds
+      for (let i = 0; i < bonds.length; i++) {
+        let a = pos[bonds[i][0]]
+        let b = pos[bonds[i][1]]
+        if (a != undefined && b != undefined)
+          this.bond_mesh.setMatrixAt(i, this.get_bond_transform(a, b))
+      }
+
+      this.bond_mesh.instanceMatrix.needsUpdate = true
+    },
+
+
+    compute_bounds(index) {
+      let bbox = new THREE.Box3 // Empty, so it does not always contain origin
+      let pos  = this.positions[index]
+
+      for (let i = 0; i < this.topology.atoms.length; i++) {
+        let p = pos[i]
+        bbox.expandByPoint(new THREE.Vector3(p[0], p[1], p[2]))
+      }
 
       return bbox
     },
 
 
     draw() {
-      this.frame = 0
-      this.protein.clear()
+      this.clear_protein()
 
-      if (this.positions != undefined && this.positions.length)
-        this.protein.add(this.draw_protein(0, this.draw_type))
+      if (!this.drawable) return
+      if (this.frames <= this.frame) this.frame = 0
+
+      this.protein.add(this.draw_protein(this.draw_type))
+      this.update_frame()
 
       if (!this.camera.position.z) {
         let bbox     = this.compute_bounds(0)
@@ -505,6 +545,7 @@ export default {
 
 
     zoom(scale) {
+      if (this.zoom_min == undefined) return
       let z = this.camera.position.z * scale
       this.camera.position.z =
         Math.min(Math.max(z, this.zoom_min), this.zoom_max)
@@ -552,7 +593,7 @@ export default {
 <template lang="pug">
 .visualization
   .canvas(ref="canvas")
-    .message
+    .message {{message}}
 
   .controls.view-panel
     .control
@@ -590,7 +631,7 @@ export default {
   .message
     position absolute
     width 100%
-    line-height 200px
+    padding 100px var(--gap)
     text-align center
     font-size 200%
 
