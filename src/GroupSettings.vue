@@ -85,6 +85,20 @@ fieldset.settings.view-panel
       input(v-model="config.keep_awake", type="checkbox",
         title="Prevent system sleep when folding and not on battery")
 
+  .setting(v-if="$util.version_less('8.5.6', version)")
+    HelpBalloon(name="Pin to Perf Cores")
+      p.
+        On CPUs with both performance and efficiency cores, such as recent
+        Intel, AMD and ARM processors, restrict folding to the performance
+        cores.  Some folding cores run much slower when their work is split
+        between fast and slow cores.
+      p.
+        This option has no effect on CPUs without efficiency cores, on macOS,
+        or if more CPUs are allocated than there are performance cores.
+
+    input(v-model="config.pin_to_perf_cores", type="checkbox",
+      title="Only run folding cores on performance CPU cores")
+
 fieldset.settings.view-panel
   legend
     HelpBalloon(name="Resource Usage"): p.

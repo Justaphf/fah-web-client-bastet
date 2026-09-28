@@ -190,6 +190,9 @@ export default {
         copy.keep_awake = !!config.keep_awake
       }
 
+      if (this.$util.version_less('8.5.6', this.version))
+        copy.pin_to_perf_cores = !!config.pin_to_perf_cores
+
       let config_gpus = config.gpus || {}
       copy.gpus = {}
       for (let id in this.available_gpus) {

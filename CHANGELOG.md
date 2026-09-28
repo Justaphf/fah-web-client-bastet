@@ -2,6 +2,7 @@ Folding@home Web Control Changelog
 =================================
 
 ## v8.5.7
+ - Added "Pin to Perf Cores" scheduling setting.  re:fah-client-bastet#349
  - Fix hide_empty_groups bug. re:#274
  - Increase max zoom in 3D viewer. re:#245 @arisu3
  - Load cache one page at a time to avoid `Operation too large`. @Justaphf
