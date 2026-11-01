@@ -153,7 +153,7 @@ class Machines {
 
 
   wus_enable(enable) {
-    for (let mach of this)
+    for (let mach of Object.values(this.machines))
       mach.wus_enable(enable)
 
     this.wus_enabled = enable
