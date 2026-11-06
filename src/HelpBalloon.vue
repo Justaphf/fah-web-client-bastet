@@ -27,26 +27,56 @@
 -->
 
 <script>
+const offset = 6 // px, content edge past the caret
+
+
 export default {
   props: ['name'],
-  data() {return {active: false}},
+  data() {return {active: false, up: false}},
 
   watch: {
     active() {
-      if (this.active) this.$util.lock_scrolling()
-      else this.$util.unlock_scrolling()
+      if (this.active) {
+        this.$util.lock_scrolling()
+        this.$nextTick(this.place)
+
+      } else {
+        this.$util.unlock_scrolling()
+        this.up = false
+      }
+    }
+  },
+
+
+  methods: {
+    // Opens upward if the content would run past the bottom of the viewport
+    // and there is more room above
+    flip_up(top, bottom, height, view_height) {
+      let below = view_height - (top - offset)
+      let above = bottom + offset
+      return below < height && below < above
+    },
+
+
+    place() {
+      let content = this.$refs.content
+      if (!content || window.matchMedia('(max-width: 800px)').matches) return
+
+      let rect = this.$refs.anchor.getBoundingClientRect()
+      this.up = this.flip_up(rect.top, rect.bottom, content.offsetHeight,
+                             window.innerHeight)
     }
   }
 }
 </script>
 
 <template lang="pug">
-label.help-balloon(@click="active = !active")
+label.help-balloon(@click="active = !active", :class="{'help-up': up}")
   .help-overlay(v-show="active", @click.stop="active = false")
   .help-name {{name}}#[.fa.fa-question-circle]
-  span(v-if="active")
+  span(v-if="active", ref="anchor")
     .fa.fa-caret-left
-    .help-content.view-panel(@click.stop="true")
+    .help-content.view-panel(ref="content", @click.stop="true")
       .help-header
         h2.help-title {{name}} Help
         Button.button-icon(icon="times", @click="active=false")
@@ -120,6 +150,10 @@ label.help-balloon(@click="active = !active")
 
       p:last-child
         margin-bottom 0
+
+  &.help-up > span .help-content
+    margin-top 0
+    bottom -6px
 
 @media (max-width 800px)
   .help-balloon .help-content
