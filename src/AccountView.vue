@@ -27,6 +27,9 @@
 -->
 
 <script>
+import Account from './account.js'
+
+
 function copy_config(config = {}) {
   return {
     dark:              config.dark,
@@ -39,17 +42,8 @@ function copy_config(config = {}) {
 
 
 function copy_account(data) {
-  let cause = (!data.cause || data.cause == 'unspecified') ? 'any' : data.cause
-
-  return {
-    user:    data.user,
-    team:    data.team    || 0,
-    passkey: data.passkey || undefined,
-    cause,
-    avatar:  data.avatar  || '',
-    node:    data.node    || undefined,
-    config:  copy_config(data.config),
-  }
+  let account = Account.copy_settings(data)
+  return Object.assign(account, {config: copy_config(data.config)})
 }
 
 

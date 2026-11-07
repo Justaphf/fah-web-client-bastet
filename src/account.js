@@ -331,12 +331,39 @@ class Account {
   }
 
 
-  async save(data) {
+  // Account saves run one at a time, in call order, so an earlier PUT
+  // cannot land after a later one
+  _enqueue(save) {
+    let done = (this._saving || Promise.resolve()).then(save)
+    this._saving = done.catch(() => {})
+    return done
+  }
+
+
+  async _save(data) {
     let restart = data.node != this.data.node
     await this.ctx.$api.put('/account', data, 'Saving account data')
     await this.ctx.$node.broadcast('config', {config: data})
     if (restart) await this.ctx.$node.broadcast('restart')
     this.set_data(data) // NOTE, this indirectly triggers a node reconnect
+  }
+
+
+  async save(data) {return this._enqueue(() => this._save(data))}
+
+
+  // Account settings as saved, without config
+  static copy_settings(data) {
+    let cause = data.cause == 'unspecified' ? 'any' : (data.cause || 'any')
+
+    return {
+      user:    data.user,
+      team:    data.team    || 0,
+      passkey: data.passkey || undefined,
+      cause,
+      avatar:  data.avatar  || '',
+      node:    data.node    || undefined,
+    }
   }
 
 
