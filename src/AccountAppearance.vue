@@ -42,14 +42,49 @@ const layouts = {
 }
 
 
+function wu_header(key) {return Unit.get_field_header('stat:' + key)}
+
+
 export default {
   props: {account: Object, config: Object},
+
+
+  data() {return {wu_columns: []}},
 
 
   watch: {
     'config.dark'(x)    {this.$root.set_dark(x)},
     'config.wide'(x)    {this.$root.set_wide(x)},
     'config.compact'(x) {this.$root.set_compact(x)},
+
+
+    // The lists hold column headers, the config holds their keys
+    config: {
+      immediate: true,
+      handler(config) {
+        this.wu_columns =
+          Unit.load_gpu_columns(config.wu_columns).map(wu_header)
+      }
+    },
+
+
+    wu_columns: {
+      deep: true,
+      handler(headers) {
+        // Drops anything which is not a history column
+        let known =
+          headers.filter(header => Object.hasOwn(this.wu_keys, header))
+        if (known.length < headers.length) {
+          this.wu_columns = known
+          return
+        }
+
+        let keys = headers.map(header => this.wu_keys[header])
+        if (!this.$util.isEqual(keys,
+                                Unit.load_gpu_columns(this.config.wu_columns)))
+          this.config.wu_columns = keys
+      }
+    }
   },
 
 
@@ -65,11 +100,32 @@ export default {
         if (used.indexOf(col) == -1) l.push(col)
 
       return l.sort()
+    },
+
+
+    wu_keys() {
+      let keys = {}
+
+      for (let key of Unit.gpu_stat_keys.concat(this.config.wu_columns || []))
+        if (Unit.is_gpu_stat_key(key)) keys[wu_header(key)] = key
+
+      return keys
+    },
+
+
+    unused_wu_cols() {
+      return Unit.gpu_stat_keys.map(wu_header)
+        .filter(header => !this.wu_columns.includes(header))
     }
   },
 
   methods: {
     reset_columns() {this.config.columns = Unit.default_columns},
+
+
+    reset_wu_columns() {
+      this.wu_columns = Unit.default_gpu_columns.map(wu_header)
+    },
 
 
     set_layout(name) {
@@ -121,6 +177,22 @@ fieldset.settings.view-panel
       .drag-zone(title="Move disabled columns here")
         .fa.fa-trash
         DragList(:list="unused_cols", :removable="false")
+
+  .columns-setting.wu-columns-setting
+    HelpBalloon(name="Work Unit History Columns"): p.
+      Drag and drop columns to change the GPU statistics shown in the Work
+      Unit history.  They are only shown for machines which record GPU
+      telemetry history.
+
+    .drag-zones
+      .drag-zone
+        Button.button-icon(icon="refresh", @click="reset_wu_columns",
+          title="Reset Work Unit history columns to default")
+        DragList(:list="wu_columns", group="wu")
+
+      .drag-zone(title="Move disabled columns here")
+        .fa.fa-trash
+        DragList(:list="unused_wu_cols", :removable="false", group="wu")
 
   .setting.layout-setting
     HelpBalloon(name="Layout"): p.

@@ -27,8 +27,9 @@
 -->
 
 <script>
-import CommonSettings from './CommonSettings.vue'
-import GroupSettings  from './GroupSettings.vue'
+import CommonSettings       from './CommonSettings.vue'
+import GroupSettings        from './GroupSettings.vue'
+import GPUTelemetrySettings from './GPUTelemetrySettings.vue'
 
 
 function copy_keys(config, keys) {
@@ -43,7 +44,7 @@ function copy_keys(config, keys) {
 
 export default {
   props: ['mach'],
-  components: {CommonSettings, GroupSettings},
+  components: {CommonSettings, GroupSettings, GPUTelemetrySettings},
 
 
   data() {
@@ -115,6 +116,7 @@ export default {
     modified() {
       if (!this.valid_name) return false
       if (!(this.$refs.common || {valid: true}).valid) return false
+      if (!(this.$refs.telemetry || {valid: true}).valid) return false
       if (this.name_modified) return true
       if (!this.config) return false
       return this.config_modified
@@ -132,6 +134,15 @@ export default {
         gpus.push(Object.assign({id, supported: true}, info))
 
       return gpus
+    },
+
+
+    telemetry_gpus() {return this.gpus.filter(gpu => gpu.nvml)},
+
+
+    has_telemetry() {
+      return (this.config || {}).gpu_telemetry != undefined &&
+        0 < this.telemetry_gpus.length
     }
   },
 
@@ -218,11 +229,44 @@ export default {
     },
 
 
+    // Only sent to clients which report these keys
+    get_telemetry_config(config) {
+      if (config.gpu_telemetry == undefined) return {}
+
+      let monitored = {}
+      for (const [id, enabled] of Object.entries(config.gpu_telemetry))
+        if (enabled) monitored[id] = true
+
+      let copy = {gpu_telemetry: monitored}
+
+      // Clients may report only some of these keys
+      let keys = ['gpu_telemetry_interval', 'gpu_telemetry_history',
+                  'gpu_telemetry_bucket', 'gpu_telemetry_series_max',
+                  'gpu_telemetry_aging', 'energy_rate']
+
+      for (let key of keys)
+        if (key in config) copy[key] = config[key]
+
+      // Copied so that edits do not change the client's data before Save.
+      // Malformed values load as empty or invalid rows rather than NaN.
+      if ('gpu_telemetry_aging' in copy) {
+        let aging = copy.gpu_telemetry_aging
+        copy.gpu_telemetry_aging = !Array.isArray(aging) ? [] :
+          aging.map(tier => ({days:   Number((tier || {}).days)   || 0,
+                              bucket: Number((tier || {}).bucket) || 0}))
+      }
+
+      return copy
+    },
+
+
     init() {
       let config = this.data.config
       if (this.config || !config || this.$util.isEmpty(config)) return
 
+      let telemetry = this.get_telemetry_config(config)
       config = this.logged_in ? {} : this.get_account_config(config)
+      Object.assign(config, telemetry)
 
       if (!this.data.groups)
         config.groups = {'': this.get_group_config(config)}
@@ -366,6 +410,9 @@ Dialog.new-group-dialog(ref="new_group_dialog", buttons="Create")
 
         GroupSettings(:config="groups[group]", :cpus="available_cpus",
           :gpus="gpus", :advanced="advanced", :version="version")
+
+    GPUTelemetrySettings(v-if="connected && has_telemetry", ref="telemetry",
+      :config="config", :gpus="telemetry_gpus")
 
   .actions
     Button.button-icon(v-if="!advanced && connected", @click="unlock",

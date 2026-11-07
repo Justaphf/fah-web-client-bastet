@@ -252,6 +252,20 @@ class Machine {
   }
 
 
+  // Only the requested series is kept, the client stores the others
+  async request_series(unit) {
+    this.seriesUnit = unit
+    this._drop_series()
+    if (this.is_connected()) return this.send_command('series', {unit})
+  }
+
+
+  clear_series() {
+    this.seriesUnit = undefined
+    this._drop_series()
+  }
+
+
   visualize_unit(unit) {
     if (this.vizUnit == unit) return
     this.vizUnit = unit
@@ -304,9 +318,17 @@ class Machine {
       if (this.vizUnit)    this._send_viz_enable()
       if (this.logEnabled) this._send_log_enable()
       if (this.wusEnabled) this._send_wus_enable()
+      if (this.seriesUnit) this.request_series(this.seriesUnit)
 
     } else if (Array.isArray(msg)) {
+      // Late reply for a series no longer requested
+      if (msg[0] == 'series' && msg[1] != this.seriesUnit) return
+
       this.state.data.do_update(msg)
+
+      // A null value deletes the key but here means no history was recorded
+      if (msg.length == 3 && msg[0] == 'series' && msg[2] === null)
+        this.state.data.series[msg[1]] = null
 
       // Cache viz
       if (msg.length && msg[0] == 'viz') {
@@ -353,6 +375,13 @@ class Machine {
     }
 
     return viz.frames.length
+  }
+
+
+  _drop_series() {
+    let series = this.get_data().series || {}
+    for (let unit of Object.keys(series))
+      if (unit != this.seriesUnit) delete series[unit]
   }
 
 

@@ -111,6 +111,12 @@ const sort_values = {
   run_time:    u => u.run_time_secs,
   base_credit: u => u.assign.credit,
   assign_time: u => to_ms(u.assign.time),
+  gpu_energy:  u => unit_energy(u).wh,
+  gpu_cost:    u => unit_energy(u).cost,
+  avg_power:   u => gpu_stat(u, 'power', 'mean'),
+  avg_load:    u => gpu_stat(u, 'gpu_util', 'mean'),
+  avg_clock:   u => gpu_stat(u, 'gpu_clock', 'mean'),
+  max_temp:    u => gpu_stat(u, 'temp', 'max'),
 }
 
 
@@ -128,14 +134,100 @@ function get_os_icon(os) {
 }
 
 
-function first_gpu(unit) {
-  let id = (unit.assign.gpus || [])[0]
-  return (unit.mach.get_info().gpus || {})[id]
+function assigned_gpus(unit) {
+  let gpus = unit.mach.get_info().gpus || {}
+  return (unit.assign.gpus || []).map(id => gpus[id])
+}
+
+
+function first_gpu(unit) {return assigned_gpus(unit)[0]}
+
+
+// Statistics of the first assigned GPU.  Recorded statistics also exist for
+// finished units, so no RUN guard
+function gpu_stat(unit, name, key) {
+  let id    = (unit.assign.gpus || [])[0]
+  let value = ((unit.unit.gpu_stats || {})[id] || {})[name]
+  if (key) value = (value || {})[key]
+  return is_number(value) ? value : undefined
+}
+
+
+function stats_energy_wh(stats) {
+  if (is_number(stats.energy_wh)) return stats.energy_wh
+  if (is_number(stats.energy_joules)) return stats.energy_joules / 3600
+}
+
+
+// Undefined unless all values are numbers
+function sum_all(values) {
+  if (!values.length || !values.every(is_number)) return
+  return values.reduce((a, b) => a + b, 0)
+}
+
+
+// Summed over the assigned GPUs, undefined unless every one has energy
+function gpu_energy_wh(unit) {
+  let stats = unit.unit.gpu_stats || {}
+  return sum_all((unit.assign.gpus || [])
+    .map(id => stats_energy_wh(stats[id] || {})))
+}
+
+
+// $/kWh, undefined if the machine does not report a rate
+function get_energy_rate(mach) {
+  let rate = mach.get_config().energy_rate
+  if (is_number(rate) && 0 <= rate) return rate
+}
+
+
+function energy_cost(wh, rate) {
+  if (wh != undefined && rate != undefined) return wh / 1000 * rate
+}
+
+
+function gpu_cost_usd(unit) {
+  return energy_cost(gpu_energy_wh(unit), unit.energy_rate)
+}
+
+
+// Live while the unit runs, otherwise from history.  Live cost has a fourth
+// decimal so that it visibly changes with the live energy.
+function unit_energy(unit) {
+  let wh = unit.live_energy_wh
+  let live = wh != undefined
+  if (!live) wh = gpu_energy_wh(unit)
+
+  return {wh, cost: energy_cost(wh, unit.energy_rate), digits: live ? 4 : 3}
+}
+
+
+function dollars(value, digits) {
+  return value == undefined ? '' : `$${value.toFixed(digits)}`
+}
+
+
+function coverage_note(units, included) {
+  let finished = 0, count = 0
+
+  for (let unit of units)
+    if (unit.unit.result) {
+      finished++
+      if (included(unit)) count++
+    }
+
+  return count < finished ? `(${count} of ${finished} units)` : ''
 }
 
 
 function fixed(value, digits) {
   return value == undefined ? '' : value.toFixed(digits)
+}
+
+
+function watt_hours(value) {
+  return value == undefined ? '' : value.toLocaleString(undefined,
+    {minimumFractionDigits: 2, maximumFractionDigits: 2})
 }
 
 
@@ -155,6 +247,127 @@ function pcie_link(gen, width, device) {
   if (device != undefined) parts.push(`(device Gen${device})`)
   return parts.join(' ')
 }
+
+
+const gpu_stat_fields = {
+  gpu_clock: {label: 'Clock',     units: 'MHz'},
+  mem_clock: {label: 'Mem Clock', units: 'MHz'},
+  power:     {label: 'Power',     units: 'W'},
+  temp:      {label: 'Temp',      units: '\u00b0C'},
+  gpu_util:  {label: 'Load',      units: '%'},
+  mem_util:  {label: 'Mem Load',  units: '%'},
+}
+
+
+const gpu_stat_states = {
+  pstate:     {label: 'P-State',    format: s => `P${s}`},
+  pcie_gen:   {label: 'PCIe Gen',   format: s => `Gen${s}`},
+  pcie_width: {label: 'PCIe Width', format: s => `x${s}`},
+}
+
+
+function gpu_stat_order(name) {
+  let i = Object.keys(gpu_stat_fields).indexOf(name)
+  if (i != -1) return i
+  return /^fan\d+$/.test(name) ? 100 : 200
+}
+
+
+function cmp_gpu_stat_fields(a, b) {
+  return gpu_stat_order(a) - gpu_stat_order(b) ||
+    a.localeCompare(b, undefined, {numeric: true})
+}
+
+
+const gpu_stat_aggregates = {
+  min: 'Min', max: 'Max', mean: 'Mean', median: 'Median', p95: 'P95'}
+
+
+// Stepped fields have no aggregates
+function is_gpu_stat_field(name) {
+  return Object.hasOwn(gpu_stat_fields, name) || /^fan\d+$/.test(name)
+}
+
+
+// Per Work Unit totals, listed before the field statistics.  They do not
+// wait for the first save.
+const gpu_stat_totals = {
+  energy: {
+    header: 'Energy (Wh)',
+    desc:   'Energy used by all GPUs assigned to the Work Unit: live while ' +
+      'it runs, from the saved statistics afterwards',
+    value:  unit => unit_energy(unit).wh,
+    format: watt_hours,
+    live:   true,
+  },
+  cost: {
+    header: 'Cost',
+    desc:   'Estimated cost of the energy used by all GPUs assigned to the ' +
+      'Work Unit at the machine\'s energy rate: live while it runs, from ' +
+      'the saved statistics afterwards',
+    value:  unit => unit_energy(unit).cost,
+    format: (v, unit) => dollars(v, unit_energy(unit).digits),
+    live:   true,
+  },
+  run_time: {
+    header: 'Run Time',
+    desc:   'Total Work Unit run time',
+    value:  unit => unit.run_time_secs,
+    format: (v, unit) => v == undefined ? '' : unit.util.time_interval_full(v),
+  },
+}
+
+
+const default_gpu_columns    = ['energy', 'gpu_clock.mean', 'power.mean']
+const gpu_stat_column_fields = [...Object.keys(gpu_stat_fields), 'fan0', 'fan1']
+
+
+// Columns named "stat:<total>" or "stat:<field>.<aggregate>"
+function parse_stat_column(name) {
+  let m = /^stat:(\w+)(?:\.(\w+))?$/.exec(name)
+  if (!m) return
+
+  let [, field, agg] = m
+  if (!agg) return Object.hasOwn(gpu_stat_totals, field) ?
+    {key: field, total: gpu_stat_totals[field]} : undefined
+
+  if (is_gpu_stat_field(field) && Object.hasOwn(gpu_stat_aggregates, agg))
+    return {key: `${field}.${agg}`, field, agg}
+}
+
+
+function stat_column_field(name) {
+  let c = parse_stat_column(name)
+  if (!c) return
+  if (c.total)
+    return {header: c.total.header, desc: c.total.desc, live: c.total.live}
+
+  let {label, units} = Unit.gpu_field(c.field)
+  let agg = gpu_stat_aggregates[c.agg]
+  return {header: `${label} ${agg} (${units})`,
+          desc: `${label} ${agg.toLowerCase()} of the first assigned GPU ` +
+            'over the Work Unit'}
+}
+
+
+function stat_column_value(unit, c) {
+  return c.total ? c.total.value(unit) : gpu_stat(unit, c.field, c.agg)
+}
+
+
+function stat_column_pending(unit, c) {
+  return unit.gpu_stats_pending && !c.total
+}
+
+
+function stat_column_text(unit, c) {
+  let value = stat_column_value(unit, c)
+  if (c.total) return c.total.format(value, unit)
+  return fixed(value, c.agg == 'mean' ? 1 : 0)
+}
+
+
+function is_number(v) {return typeof v == 'number' && isFinite(v)}
 
 
 class Unit {
@@ -209,17 +422,20 @@ class Unit {
       mem_clock:  with_max(t.mem_clock, t.mem_clock_max, u('MHz')),
       gpu_pstate: t.pstate == undefined ? '' : `P${t.pstate}`,
       gpu_temp:   v(t.temp, '\u00b0C'),
-      gpu_util:   v(t.gpu_util, '%'),
-      mem_util:   v(t.mem_util, '%'),
+      gpu_load:   v(t.gpu_util, '%'),
+      mem_load:   v(t.mem_util, '%'),
       gpu_power:  with_max(fixed(t.power, 1), fixed(t.power_limit, 0), u('W')),
       gpu_fans:   (t.fans || []).map(speed => `${speed}${u('%')}`).join(' / '),
     }
   }
 
 
+  // Live telemetry belongs to the unit only while it runs
+  get is_running() {return this.unit.state == 'RUN' && !this.paused}
+
+
   get_gpu_telemetry(units) {
-    // The GPU may be running another unit
-    let gpu = this.unit.state == 'RUN' && !this.paused && first_gpu(this)
+    let gpu = this.is_running && first_gpu(this)
     return Unit.format_gpu_telemetry((gpu || {}).telemetry, units)
   }
 
@@ -227,16 +443,198 @@ class Unit {
   get gpu_telemetry() {return this.get_gpu_telemetry(false)}
 
 
-  get pcie_link()  {return this.gpu_telemetry.pcie_link}
-  get pcie_max()   {return this.gpu_telemetry.pcie_max}
-  get gpu_clock()  {return this.gpu_telemetry.gpu_clock}
-  get mem_clock()  {return this.gpu_telemetry.mem_clock}
-  get gpu_pstate() {return this.gpu_telemetry.gpu_pstate}
-  get gpu_temp()   {return this.gpu_telemetry.gpu_temp}
-  get gpu_util()   {return this.gpu_telemetry.gpu_util}
-  get mem_util()   {return this.gpu_telemetry.mem_util}
-  get gpu_power()  {return this.gpu_telemetry.gpu_power}
-  get gpu_fans()   {return this.gpu_telemetry.gpu_fans}
+  get pcie_link()   {return this.gpu_telemetry.pcie_link}
+  get pcie_max()    {return this.gpu_telemetry.pcie_max}
+  get gpu_clock()   {return this.gpu_telemetry.gpu_clock}
+  get mem_clock()   {return this.gpu_telemetry.mem_clock}
+  get gpu_pstate()  {return this.gpu_telemetry.gpu_pstate}
+  get gpu_temp()    {return this.gpu_telemetry.gpu_temp}
+  get gpu_load()    {return this.gpu_telemetry.gpu_load}
+  get mem_load()    {return this.gpu_telemetry.mem_load}
+  get gpu_power()   {return this.gpu_telemetry.gpu_power}
+  get gpu_fans()    {return this.gpu_telemetry.gpu_fans}
+
+
+  // Summed over the assigned GPUs, undefined unless every one reports energy
+  get live_energy_wh() {
+    if (!this.is_running) return
+    return sum_all(assigned_gpus(this)
+      .map(gpu => ((gpu || {}).telemetry || {}).energy_wh))
+  }
+
+
+  // The client first saves statistics about five minutes into a run.  Live
+  // energy is only reported while it records history.
+  get gpu_stats_pending() {
+    return !this.unit.gpu_stats && this.live_energy_wh != undefined
+  }
+
+
+  static gpu_field(name) {
+    let fan = /^fan(\d+)$/.exec(name)
+    if (fan) return {label: `Fan ${+fan[1] + 1}`, units: '%'}
+    if (Object.hasOwn(gpu_stat_fields, name)) return gpu_stat_fields[name]
+    return {label: name, units: ''}
+  }
+
+
+  static format_stat(v) {
+    if (!is_number(v)) return ''
+    return Number.isInteger(v) ? String(v) : v.toFixed(1)
+  }
+
+
+  static format_stat_mean(v) {return is_number(v) ? v.toFixed(1) : ''}
+
+
+  // Rare states stay visible instead of rounding to zero
+  static format_fraction(f) {
+    if (0 < f && f < 0.0005) return '<0.1 %'
+    return (f * 100).toFixed(1) + ' %'
+  }
+
+
+  // Percent of the run time saved with the statistics
+  static format_coverage(seconds, run_time) {
+    if (!is_number(seconds)) return ''
+    let s = `${Math.round(seconds)} s`
+    if (!is_number(run_time) || run_time <= 0) return s
+    return `${s} (${Math.round(seconds / run_time * 100)} %)`
+  }
+
+
+  static format_gpu_stats(stats, rate) {
+    stats = stats || {}
+    let is_stat = v => v && typeof v == 'object' && is_number(v.mean)
+
+    let rows = Object.keys(stats).filter(name => is_stat(stats[name]))
+      .sort(cmp_gpu_stat_fields)
+      .map(name => {
+        let s = stats[name]
+
+        return Object.assign({name}, Unit.gpu_field(name), {
+          min:    Unit.format_stat(s.min),
+          max:    Unit.format_stat(s.max),
+          mean:   Unit.format_stat_mean(s.mean),
+          median: Unit.format_stat(s.median),
+          p95:    Unit.format_stat(s.p95),
+        })
+      })
+
+    let states = []
+    for (const [name, {label, format}] of Object.entries(gpu_stat_states)) {
+      let fractions = stats[name]
+      if (!fractions || typeof fractions != 'object') continue
+
+      let content = Object.entries(fractions)
+        .sort((a, b) => b[1] - a[1])
+        .map(([state, f]) => `${format(state)} ${Unit.format_fraction(f)}`)
+        .join(', ')
+
+      states.push({name, label, content})
+    }
+
+    let wh   = stats_energy_wh(stats)
+    let cost = energy_cost(wh, rate)
+
+    return {
+      rows, states,
+      seconds:  stats.seconds,
+      run_time: stats.run_time,
+      energy:   wh == undefined ? '' : `${watt_hours(wh)} Wh`,
+      cost:     dollars(cost, 3),
+    }
+  }
+
+
+  get gpu_stats() {return this.unit.gpu_stats}
+
+
+  get energy_rate() {return get_energy_rate(this.mach)}
+
+
+  get gpu_energy() {return watt_hours(unit_energy(this).wh)}
+
+
+  get gpu_cost() {
+    let {cost, digits} = unit_energy(this)
+    return dollars(cost, digits)
+  }
+
+
+  get avg_power()  {return fixed(gpu_stat(this, 'power', 'mean'), 1)}
+  get avg_load()   {return fixed(gpu_stat(this, 'gpu_util', 'mean'), 1)}
+  get avg_clock()  {return fixed(gpu_stat(this, 'gpu_clock', 'mean'), 0)}
+  get max_temp()   {return fixed(gpu_stat(this, 'temp', 'max'), 0)}
+
+
+  // Numeric statistics recorded for the first GPU
+  get gpu_stat_names() {
+    let id    = (this.assign.gpus || [])[0]
+    let stats = (this.unit.gpu_stats || {})[id] || {}
+
+    return Object.keys(stats).filter(name =>
+      is_gpu_stat_field(name) && is_number((stats[name] || {}).mean))
+  }
+
+
+  // Sums over the units with GPU energy, blank without any.  Units of
+  // machines without an energy rate have no cost.
+  static format_gpu_energy_totals(units) {
+    let energy, cost
+
+    for (let unit of units) {
+      let wh = gpu_energy_wh(unit)
+      if (wh == undefined) continue
+      energy = (energy || 0) + wh
+
+      let c = energy_cost(wh, unit.energy_rate)
+      if (c != undefined) cost = (cost || 0) + c
+    }
+
+    return {energy: watt_hours(energy), cost: dollars(cost, 3)}
+  }
+
+
+  // "(n of m units)" when some finished units have no GPU energy
+  static format_gpu_energy_coverage(units) {
+    return coverage_note(units, unit => gpu_energy_wh(unit) != undefined)
+  }
+
+
+  // As above for units with GPU energy and a machine energy rate
+  static format_gpu_cost_coverage(units) {
+    return coverage_note(units, unit => gpu_cost_usd(unit) != undefined)
+  }
+
+
+  // Undefined unless key is "<total>" or "<field>.<aggregate>"
+  static parse_gpu_stat_key(key) {return parse_stat_column('stat:' + key)}
+  static is_gpu_stat_key(key)    {return !!Unit.parse_gpu_stat_key(key)}
+  static sort_gpu_stat_fields(names) {return names.sort(cmp_gpu_stat_fields)}
+
+
+  // Every Work Unit history column, totals first
+  static get gpu_stat_keys() {
+    let keys = Object.keys(gpu_stat_totals)
+
+    for (let field of gpu_stat_column_fields)
+      for (let agg of Object.keys(gpu_stat_aggregates))
+        keys.push(`${field}.${agg}`)
+
+    return keys
+  }
+
+
+  static get default_gpu_columns() {return [...default_gpu_columns]}
+
+
+  // Ordered history columns, invalid keys and duplicates dropped.  Not an
+  // array uses the defaults.
+  static load_gpu_columns(keys) {
+    if (!Array.isArray(keys)) return Unit.default_gpu_columns
+    return [...new Set(keys.filter(key => Unit.is_gpu_stat_key(key)))]
+  }
 
 
   get os_arch() {
@@ -492,8 +890,18 @@ class Unit {
   get base_credit() {return (this.assign.credit || 0).toLocaleString()}
 
 
-  static has_field(name)      {return name in fields}
-  static get_field(name)      {return fields[name] || {}}
+  static has_field(name) {return name in fields || !!parse_stat_column(name)}
+
+
+  // Fields showing a total share its description
+  static get_field(name) {
+    let field = fields[name]
+    if (field && field.total)
+      return Object.assign(stat_column_field('stat:' + field.total), field)
+    return field || stat_column_field(name) || {}
+  }
+
+
   static get_field_size(name) {return Unit.get_field(name).size || 'auto'}
   static get field_names()    {return Object.keys(fields)}
 
@@ -515,10 +923,19 @@ class Unit {
   }
 
 
-  get_field_content(name)       {return this[clean_field(name)]}
+  get_field_content(name) {
+    let c = parse_stat_column(name)
+    if (!c) return this[clean_field(name)]
+    if (stat_column_pending(this, c)) return 'pending'
+
+    return stat_column_text(this, c)
+  }
 
 
   get_sort_value(name) {
+    let c = parse_stat_column(name)
+    if (c) return stat_column_value(this, c)
+
     let f = sort_values[clean_field(name)]
     return f ? f(this) : this.get_field_content(name)
   }
@@ -567,6 +984,15 @@ class Unit {
 
 
   get_field_title(name) {
+    let c = parse_stat_column(name)
+    if (c && stat_column_pending(this, c))
+      return 'Statistics are recorded at the client\'s first save, about ' +
+        'five minutes after the core starts'
+
+    if (Unit.get_field(name).live && this.live_energy_wh != undefined &&
+        this.get_field_content(name) !== '')
+      return 'Live reading while the Work Unit runs'
+
     return this[clean_field(name) + '_title'] || Unit.get_field_desc(name)
   }
 

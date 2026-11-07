@@ -29,9 +29,12 @@
 <script>
 export default {
   name: 'UnitInfo',
-  props: ['unit', 'field'],
+  props: ['unit', 'field', 'content'],
   methods: {
-    get_text() {return this.unit.get_field_text(this.field)}
+    get_text() {
+      if (this.content != undefined) return this.content
+      return this.unit.get_field_text(this.field)
+    }
   },
 }
 </script>

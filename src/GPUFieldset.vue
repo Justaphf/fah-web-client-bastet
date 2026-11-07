@@ -44,10 +44,12 @@ export default {
 
         cinfo.name      = name
         cinfo.supported = cinfo.compute
-        cinfo.image     = `/images/${cinfo.supported ? '' : 'no-'}${type}.png`
 
         devs.push(cinfo)
       }
+
+      // NVML is a flag only: GPU telemetry, no compute device
+      devs.push({name: 'NVML', supported: !!this.gpu.nvml})
 
       return devs
     },
@@ -62,7 +64,7 @@ export default {
         ['PCIe Link',       t.pcie_link],  ['PCIe Max',        t.pcie_max],
         ['GPU Clock',       t.gpu_clock],  ['Memory Clock',    t.mem_clock],
         ['P-State',         t.gpu_pstate], ['Temperature',     t.gpu_temp],
-        ['GPU Utilization', t.gpu_util],   ['Mem Utilization', t.mem_util],
+        ['GPU Load',        t.gpu_load],   ['Memory Load',     t.mem_load],
         ['Power',           t.gpu_power],  ['Fans',            t.gpu_fans],
       ].filter(item => item[1])
 
