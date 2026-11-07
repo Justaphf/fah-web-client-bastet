@@ -42,6 +42,23 @@ export default {
   computed: {
     unit() {return this.$machs.get_unit(this.unitID)},
     project() {return this.$projects.get(this.unit.project) || {}},
+
+
+    gpu_telemetry() {
+      let fields = [
+        'PCIe Link',  'PCIe Max',
+        'GPU Clock',  'Mem Clock',
+        'GPU PState', 'GPU Temp',
+        'GPU Util',   'Mem Util',
+        'GPU Power',  'GPU Fans',
+      ].filter(field => this.unit.get_field_content(field))
+
+      let groups = []
+      for (let i = 0; i < fields.length; i += 2)
+        groups.push(fields.slice(i, i + 2))
+
+      return groups
+    },
   },
 
 
@@ -112,6 +129,9 @@ export default {
       .info-group
         unit-info(:unit="unit", field="Project")
         unit-info(:unit="unit", field="RCG")
+
+      .info-group(v-for="group of gpu_telemetry")
+        unit-info(v-for="field of group", :unit="unit", :field="field")
 
     fieldset.view-panel
       legend Logged Credits

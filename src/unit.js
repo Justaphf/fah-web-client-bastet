@@ -128,6 +128,35 @@ function get_os_icon(os) {
 }
 
 
+function first_gpu(unit) {
+  let id = (unit.assign.gpus || [])[0]
+  return (unit.mach.get_info().gpus || {})[id]
+}
+
+
+function fixed(value, digits) {
+  return value == undefined ? '' : value.toFixed(digits)
+}
+
+
+// units is '' or starts with a space
+function with_max(value, max, units) {
+  let absent = v => v == undefined || v === ''
+  if (absent(max)) return absent(value) ? '' : `${value}${units}`
+  if (absent(value)) return `max ${max}${units}`
+  return `${value} / ${max}${units}`
+}
+
+
+function pcie_link(gen, width, device) {
+  let parts = []
+  if (gen != undefined)    parts.push(`Gen${gen}`)
+  if (width != undefined)  parts.push(`x${width}`)
+  if (device != undefined) parts.push(`(device Gen${device})`)
+  return parts.join(' ')
+}
+
+
 class Unit {
   constructor(ctx, unit, mach) {
     // ctx may be a reactive proxy, which would unwrap $refresh here and make
@@ -163,6 +192,51 @@ class Unit {
   get os_title()    {return this.mach.get_os() || ''}
   get paused()      {return !!this.unit.pause_reason}
   get work_server() {return this.assign.ws}
+
+
+  // Absent values format as '' so they can be skipped.  Table cells omit the
+  // units, which their column headers show.
+  static format_gpu_telemetry(t, units = true) {
+    t = t || {}
+    let u = s => units ? ' ' + s : ''
+    let v = (x, s) => x == undefined ? '' : `${x}${u(s)}`
+
+    return {
+      pcie_link:  pcie_link(t.pcie_gen, t.pcie_width),
+      pcie_max:   pcie_link(t.pcie_gen_max, t.pcie_width_max,
+                            t.pcie_gen_device_max),
+      gpu_clock:  with_max(t.gpu_clock, t.gpu_clock_max, u('MHz')),
+      mem_clock:  with_max(t.mem_clock, t.mem_clock_max, u('MHz')),
+      gpu_pstate: t.pstate == undefined ? '' : `P${t.pstate}`,
+      gpu_temp:   v(t.temp, '\u00b0C'),
+      gpu_util:   v(t.gpu_util, '%'),
+      mem_util:   v(t.mem_util, '%'),
+      gpu_power:  with_max(fixed(t.power, 1), fixed(t.power_limit, 0), u('W')),
+      gpu_fans:   (t.fans || []).map(speed => `${speed}${u('%')}`).join(' / '),
+    }
+  }
+
+
+  get_gpu_telemetry(units) {
+    // The GPU may be running another unit
+    let gpu = this.unit.state == 'RUN' && !this.paused && first_gpu(this)
+    return Unit.format_gpu_telemetry((gpu || {}).telemetry, units)
+  }
+
+
+  get gpu_telemetry() {return this.get_gpu_telemetry(false)}
+
+
+  get pcie_link()  {return this.gpu_telemetry.pcie_link}
+  get pcie_max()   {return this.gpu_telemetry.pcie_max}
+  get gpu_clock()  {return this.gpu_telemetry.gpu_clock}
+  get mem_clock()  {return this.gpu_telemetry.mem_clock}
+  get gpu_pstate() {return this.gpu_telemetry.gpu_pstate}
+  get gpu_temp()   {return this.gpu_telemetry.gpu_temp}
+  get gpu_util()   {return this.gpu_telemetry.gpu_util}
+  get mem_util()   {return this.gpu_telemetry.mem_util}
+  get gpu_power()  {return this.gpu_telemetry.gpu_power}
+  get gpu_fans()   {return this.gpu_telemetry.gpu_fans}
 
 
   get os_arch() {
@@ -375,7 +449,7 @@ class Unit {
   }
 
 
-  get run_time() {return this.util.time_interval(this.run_time_secs)}
+  get run_time() {return this.util.time_interval_full(this.run_time_secs)}
 
 
   get cs() {return (this.wu.cs || []).join(', ')}
@@ -464,7 +538,32 @@ class Unit {
       .map(e => e[1])
   }
   static get_field_desc(name)   {return Unit.get_field(name).desc}
-  static get_field_header(name) {return Unit.get_field(name).header || name}
+
+
+  // Label and value pairs may need a longer name than the column header
+  static get_field_label(name) {
+    let {label, header} = Unit.get_field(name)
+    return label || header || name
+  }
+
+
+  static get_field_header(name) {
+    let {header, units} = Unit.get_field(name)
+    header = header || name
+    return units ? `${header} (${units})` : header
+  }
+
+
+  // Label and value pairs show the units in the value
+  get_field_text(name) {
+    let t = this.get_gpu_telemetry(true)
+    let key = clean_field(name)
+    if (Object.hasOwn(t, key)) return t[key]
+
+    let {units} = Unit.get_field(name)
+    let content = this.get_field_content(name)
+    return units && content ? `${content} ${units}` : content
+  }
 
 
   get_field_title(name) {

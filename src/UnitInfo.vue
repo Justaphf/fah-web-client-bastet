@@ -30,13 +30,16 @@
 export default {
   name: 'UnitInfo',
   props: ['unit', 'field'],
+  methods: {
+    get_text() {return this.unit.get_field_text(this.field)}
+  },
 }
 </script>
 
 <template lang="pug">
 .info-item
-  label: unit-header(:field="field")
-  span: unit-field(:unit="unit", :field="field")
+  label: unit-header(:field="field", :bare="true")
+  span: unit-field(:unit="unit", :field="field", :content="get_text()")
 </template>
 
 <style lang="stylus">

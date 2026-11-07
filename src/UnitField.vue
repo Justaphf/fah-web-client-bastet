@@ -29,7 +29,13 @@
 <script>
 export default {
   name: 'UnitField',
-  props: ['unit', 'field', 'odd'],
+  props: ['unit', 'field', 'odd', 'content'],
+  methods: {
+    get_content() {
+      if (this.content != undefined) return this.content
+      return this.unit.get_field_content(this.field)
+    }
+  },
 }
 </script>
 
@@ -41,7 +47,7 @@ export default {
   router-link(v-else-if="field == 'Machine' && unit.mach",
     :to="'/' + unit.mach.get_url('/details')",
     title="View Machine details") {{unit.machine}}
-  div(v-else, v-html="unit.get_field_content(field)")
+  div(v-else, v-html="get_content()")
 </template>
 
 <style lang="stylus">

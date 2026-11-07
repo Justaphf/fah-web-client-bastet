@@ -30,5 +30,22 @@
   "Version":     {"desc": "Client version"},
   "Resources":   {"desc": "CPU and GPU compute resources", "align": "left"},
   "Group Name":  {"desc": "Resource group name", "header": "Group",
-                  "align": "left"}
+                  "align": "left"},
+  "PCIe Link":   {"desc": "Current GPU PCIe link generation and width"},
+  "PCIe Max":    {"desc": "Maximum PCIe link supported by the GPU and system"},
+  "GPU Clock":   {"desc": "Current and maximum GPU graphics clock",
+                  "header": "Clock", "label": "GPU Clock", "units": "MHz"},
+  "Mem Clock":   {"desc": "Current and maximum GPU memory clock",
+                  "units": "MHz"},
+  "GPU PState":  {"desc": "GPU performance state", "header": "P-State"},
+  "GPU Temp":    {"desc": "GPU core temperature", "header": "Temp",
+                  "label": "GPU Temp", "units": "\u00b0C"},
+  "GPU Util":    {"desc": "GPU utilization",
+                  "header": "Load", "label": "GPU Load", "units": "%"},
+  "Mem Util":    {"desc": "GPU memory controller utilization",
+                  "units": "%"},
+  "GPU Power":   {"desc": "GPU power draw and power limit", "header": "Power",
+                  "label": "GPU Power", "units": "W"},
+  "GPU Fans":    {"desc": "GPU fan speeds as percent of noise profile maximum",
+                  "header": "Fans", "label": "GPU Fans", "units": "%"}
 }
