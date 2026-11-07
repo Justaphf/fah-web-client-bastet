@@ -78,11 +78,16 @@ function elemCenter(e) {
 function elemDist2d(a, b) {return dist2D(elemCenter(a), elemCenter(b))}
 
 
+// Lists only take items dragged from a list in the same group
+let drag_group
+
+
 export default {
   name: 'Draglist',
   props: {
     list: Array,
-    removable: {default: true}
+    removable: {default: true},
+    group: {default: ''}
   },
 
 
@@ -98,6 +103,7 @@ export default {
     dragstart(e) {
       let text = e.target.textContent
       this.dragging = text
+      drag_group = this.group
       e.dataTransfer.clearData()
       setData(e, text)
 
@@ -108,10 +114,14 @@ export default {
     },
 
 
-    dragend(e) {this.dragging = null},
+    dragend(e) {
+      this.dragging = null
+      drag_group = undefined
+    },
 
 
     dragover(e) {
+      if (drag_group != this.group) return
       e.preventDefault()
       e.dataTransfer.effectAllowed = 'move'
 
@@ -156,6 +166,7 @@ export default {
 
 
     dragenter(e) {
+      if (drag_group != this.group) return
       e.preventDefault()
 
       if (e.currentTarget.tagName != 'UL') return
@@ -168,7 +179,7 @@ export default {
     },
 
     dragleave(e) {
-      if (!this.removable) return
+      if (!this.removable || drag_group != this.group) return
       if (e.currentTarget.tagName != 'UL') return
       if (elemContains(e.currentTarget, e.clientX, e.clientY)) return
 
