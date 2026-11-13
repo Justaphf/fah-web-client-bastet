@@ -341,4 +341,17 @@ export default {
 
       tr > :not(:first-child)
         width 33%
+
+    .units-view
+      isolation isolate
+
+      > .unit-header
+        position sticky
+        // 1px under the header, no gap at fractional display scales
+        top calc(var(--view-header-height, 1px) - 1px)
+        z-index 1
+        box-shadow 0 1px var(--table-border-color)
+
+      a
+        scroll-margin-top 3em
 </style>
