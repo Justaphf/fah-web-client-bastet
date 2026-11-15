@@ -26,7 +26,7 @@
 
 \******************************************************************************/
 
-import {reactive} from 'vue'
+import {reactive, toRaw} from 'vue'
 import Updatable from './updatable.js'
 import Unit      from './unit.js'
 
@@ -159,6 +159,22 @@ class Machine {
 
 
   is_connected() {return this.state.connected}
+
+
+  // The client this machine talks to.  Pointing the direct connection at
+  // another address changes it at once, its id when the other client first
+  // answers.  A reconnect changes neither.
+  get_target() {
+    let sock = this.is_direct() ? toRaw(this.get_conn().sock) : undefined
+    return {id: this.get_id(), sock}
+  }
+
+
+  is_connected_to(target) {
+    let now = this.get_target()
+    return this.is_connected() && now.id === target.id &&
+      now.sock === target.sock
+  }
 
 
   is_recently_connected() {
