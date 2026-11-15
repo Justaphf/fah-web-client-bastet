@@ -54,6 +54,7 @@ export default {
       group:           '',
       new_group:       '',
       confirmed:       false,
+      saving:          false,
       unlocked:        this.$util.retrieve_bool('fah-settings-unlocked'),
 
       confirm_dialog_buttons: [
@@ -107,8 +108,10 @@ export default {
     name_modified() {return this.name != this.mach.get_name()},
 
 
+    // No draft until the machine has sent its configuration
     config_modified() {
-      return !this.$util.isEqual(this.initial_config, this.config)
+      return !!this.config &&
+        !this.$util.isEqual(this.initial_config, this.config)
     },
 
 
@@ -148,14 +151,14 @@ export default {
 
 
   beforeRouteLeave(to, from) {
-    if (!this.modified || this.confirmed) return true
+    if (this.confirmed || !this.unsaved()) return true
 
     this.$refs.confirm_dialog.exec().then(response => {
       switch (response) {
       case 'save': return this.save()
 
       case 'discard':
-        this.confirmed = true
+        this.approve()
         this.$router.push(to)
       }
     })
@@ -164,10 +167,47 @@ export default {
   },
 
 
-  mounted() {this.init()},
+  // Another machine's settings get a new page, an approval is used up here
+  beforeRouteUpdate(to, from) {
+    if (to.params.machID == from.params.machID) return true
+
+    let approved = this.confirmed
+    this.confirmed = false
+
+    if (approved || !this.unsaved()) return true
+
+    this.$refs.confirm_dialog.exec().then(response => {
+      switch (response) {
+      case 'save': return this.save(to)
+
+      case 'discard':
+        this.approve()
+        this.$router.push(to)
+      }
+    })
+
+    return false
+  },
+
+
+  mounted() {
+    this.init()
+    window.addEventListener('beforeunload', this.before_unload)
+  },
+
+
+  unmounted() {window.removeEventListener('beforeunload', this.before_unload)},
 
 
   methods: {
+    // Lets the browser ask before a reload or leaving the app loses changes
+    before_unload(e) {
+      if (this.confirmed || !this.unsaved()) return
+      e.preventDefault()
+      e.returnValue = true // Older browsers
+    },
+
+
     async link() {
       this.mach.set_name(this.name)
       this.mach.link(this.$adata.token)
@@ -252,19 +292,78 @@ export default {
     },
 
 
-    async save() {
-      if (this.name_modified)   await this.mach.save_name(this.name)
-      if (this.config_modified) await this.mach.configure(this.config)
-      this.close()
+    // Only valid settings are sent, as they were when Save was pressed.  Edits
+    // made while saving stay unsaved.
+    async save(to) {
+      if (this.saving) return
+
+      let saved = this.modified
+
+      if (saved) {
+        let name   = this.name_modified   && this.name
+        let config = this.config_modified && this.$util.deepCopy(this.config)
+        let left   = false
+        let unsent = false
+        let done   = this.$router.afterEach((next, prev, failure) => {
+          if (!failure) left = true
+        })
+
+        this.saving = true
+
+        try {
+          if (name) await this.mach.save_name(name)
+
+          // Not sent without a connection, which may be lost during a rename
+          if (config && !this.mach.is_connected()) unsent = true
+
+          else if (config) {
+            await this.mach.configure(config)
+            this.initial_config = config
+          }
+
+        } finally {
+          this.saving = false
+          done()
+        }
+
+        if (unsent)
+          this.$root.message('error', 'Save Failed', 'The machine is not ' +
+            'connected.  Its settings were not saved.')
+
+        // Stay where the user went meanwhile
+        if (left) return
+      }
+
+      if (!saved || this.unsaved()) return
+      if (!to) return this.close()
+
+      this.approve()
+      this.$router.push(to)
     },
+
+
+    // Edits not saved yet, valid or not
+    unsaved() {return this.name_modified || this.config_modified},
 
 
     cancel() {this.close()},
 
 
+    // Opened first in a browser tab, there is no page of the app to go back to
     close() {
+      this.approve()
+      if ((history.state || {}).back) this.$router.back()
+      else this.$router.replace('/')
+    },
+
+
+    // Lets only the next navigation through without asking
+    approve() {
       this.confirmed = true
-      this.$router.back()
+      let done = this.$router.afterEach(() => {
+        done()
+        this.confirmed = false
+      })
     },
 
 
@@ -327,8 +426,8 @@ Dialog.new-group-dialog(ref="new_group_dialog", buttons="Create")
     template(v-slot:actions)
       Button(@click="cancel", text="Cancel", icon="times")
 
-      Button(:disabled="!modified", @click="save", success, text="Save",
-        icon="save")
+      Button(:disabled="!modified || saving", @click="save()", success,
+        text="Save", icon="save")
 
   .view-body
     fieldset.settings.view-panel(v-if="logged_in")
