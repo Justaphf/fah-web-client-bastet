@@ -42,7 +42,7 @@ export default {
 </script>
 
 <template lang="pug">
-router-view(v-if="mach", :mach="mach")
+router-view(v-if="mach", :mach="mach", :key="machID")
 </template>
 
 <style lang="stylus">
