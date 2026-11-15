@@ -49,6 +49,7 @@ export default {
   data() {
     return {
       name:            this.mach.get_name(),
+      draft_id:        this.mach.get_id(),
       initial_config:  undefined,
       config:          undefined,
       group:           '',
@@ -289,6 +290,7 @@ export default {
 
       this.config = config
       this.initial_config = this.$util.deepCopy(this.config)
+      this.draft_id = this.mach.get_id()
     },
 
 
@@ -302,6 +304,7 @@ export default {
       if (saved) {
         let name   = this.name_modified   && this.name
         let config = this.config_modified && this.$util.deepCopy(this.config)
+        let target = this.mach.get_target()
         let left   = false
         let unsent = false
         let done   = this.$router.afterEach((next, prev, failure) => {
@@ -311,12 +314,16 @@ export default {
         this.saving = true
 
         try {
-          if (name) await this.mach.save_name(name)
+          // Nothing of a draft goes to a client it was not taken from
+          unsent = target.id != this.draft_id
+          if (name && !unsent) await this.mach.save_name(name)
 
-          // Not sent without a connection, which may be lost during a rename
-          if (config && !this.mach.is_connected()) unsent = true
+          // Not sent without a connection, which may be lost during a rename,
+          // nor to another client the direct connection was pointed at
+          if (config && !this.mach.is_connected_to(target))
+            unsent = true
 
-          else if (config) {
+          else if (config && !unsent) {
             await this.mach.configure(config)
             this.initial_config = config
           }
