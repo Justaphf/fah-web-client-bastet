@@ -115,6 +115,7 @@ export default {
     modified() {
       if (!this.valid_name) return false
       if (!(this.$refs.common || {valid: true}).valid) return false
+      if (!this.wu_display_limit_valid) return false
       if (this.name_modified) return true
       if (!this.config) return false
       return this.config_modified
@@ -132,6 +133,16 @@ export default {
         gpus.push(Object.assign({id, supported: true}, info))
 
       return gpus
+    },
+
+
+    has_wu_display_limit() {return 'wu_display_limit' in (this.config || {})},
+
+
+    wu_display_limit_valid() {
+      let limit = (this.config || {}).wu_display_limit
+      return !this.has_wu_display_limit ||
+        (Number.isInteger(limit) && 1 <= limit && limit <= 2000)
     }
   },
 
@@ -222,7 +233,9 @@ export default {
       let config = this.data.config
       if (this.config || !config || this.$util.isEmpty(config)) return
 
+      let limit = config.wu_display_limit
       config = this.logged_in ? {} : this.get_account_config(config)
+      if (limit != undefined) config.wu_display_limit = limit
 
       if (!this.data.groups)
         config.groups = {'': this.get_group_config(config)}
@@ -366,6 +379,21 @@ Dialog.new-group-dialog(ref="new_group_dialog", buttons="Create")
 
         GroupSettings(:config="groups[group]", :cpus="available_cpus",
           :gpus="gpus", :advanced="advanced", :version="version")
+
+    fieldset.settings.view-panel(v-if="connected && has_wu_display_limit")
+      legend Work Units
+
+      .setting
+        HelpBalloon(name="Display Limit"): p.
+          The number of most recent finished Work Units this machine sends to
+          the Work Units page, from 1 to 2000.  Each machine has its own
+          limit.  Large values make the Work Units page slower.  Older Work
+          Units are not deleted.
+
+        input(v-model.number="config.wu_display_limit", type="number",
+          min="1", max="2000", step="1",
+          :class="{error: !wu_display_limit_valid}",
+          title="Number of finished Work Units to show")
 
   .actions
     Button.button-icon(v-if="!advanced && connected", @click="unlock",
