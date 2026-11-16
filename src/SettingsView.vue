@@ -49,8 +49,21 @@ function copy_keys(config, keys) {
 }
 
 
+function last_tab() {
+  try {return localStorage.getItem('fah-settings-tab')} catch (e) {}
+}
+
+
+// Routes of one machine's settings page differ only in the tab
+function same_page(a, b) {
+  let page = route => route.matched[route.matched.length - 1]
+  return page(a) == page(b) && a.params.machID == b.params.machID
+}
+
+
 export default {
-  props: ['mach'],
+  inheritAttrs: false,
+  props: ['mach', 'route_tab'],
   components: {CommonSettings, GroupSettings, GPUTelemetrySettings},
 
 
@@ -76,7 +89,20 @@ export default {
 
 
   watch: {
-    'data.config'() {this.init()}
+    'data.config'() {this.init()},
+
+
+    // Remember the tab for next time
+    tab: {
+      immediate: true,
+      handler(tab) {
+        if (tab == this.route_tab)
+          try {localStorage.setItem('fah-settings-tab', tab)} catch (e) {}
+      }
+    },
+
+
+    url_tab(tab) {if (tab) this.$router.replace({params: {tab}})}
   },
 
 
@@ -165,6 +191,36 @@ export default {
       let limit = (this.config || {}).wu_display_limit
       return !this.has_wu_display_limit ||
         (Number.isInteger(limit) && 1 <= limit && limit <= 2000)
+    },
+
+
+    show_telemetry() {return this.connected && this.has_telemetry},
+
+
+    tabs() {
+      let tabs = [{id: 'machine', name: 'Machine', icon: 'cog'}]
+
+      if (this.show_telemetry)
+        tabs.push({id: 'telemetry', name: 'GPU Telemetry',
+                   icon: 'thermometer-half'})
+
+      return tabs
+    },
+
+
+    // The tab the URL names, else the last used one, else the first
+    tab() {
+      let tab = this.route_tab || last_tab()
+      return this.tabs.some(t => t.id == tab) ? tab : 'machine'
+    },
+
+
+    // The tab the URL should name instead, once the tabs are known.  With
+    // only the first tab the URL needs none.
+    url_tab() {
+      let tab = this.route_tab
+      if (!this.config || (!tab && this.tabs.length < 2)) return
+      if (tab != this.tab) return this.tab
     }
   },
 
@@ -354,7 +410,7 @@ export default {
         let left   = false
         let unsent = false
         let done   = this.$router.afterEach((next, prev, failure) => {
-          if (!failure) left = true
+          if (!failure && !same_page(next, prev)) left = true
         })
 
         this.saving = true
@@ -387,11 +443,79 @@ export default {
         if (left) return
       }
 
+      // Shows an invalid field
+      let tab = !saved && this.unsaved() &&
+        ['machine', 'telemetry'].find(id => this.tab_invalid(id))
+
+      if (tab) {
+        if (tab != this.tab) await this.$router.replace({params: {tab}})
+        await this.$nextTick()
+        return this.show_problem()
+      }
+
       if (!saved || this.unsaved()) return
       if (!to) return this.close()
 
       this.approve()
       this.$router.push(to)
+    },
+
+
+    show_problem() {
+      let field = [...this.$refs.page.querySelectorAll('.error')]
+        .find(e => e.offsetParent)
+      if (field) field.scrollIntoView({block: 'center'})
+    },
+
+
+    // The telemetry tab edits these config keys, the first tab all others
+    tab_config_modified(id) {
+      let keys = ['gpu_telemetry', ...telemetry_keys]
+      let pick = config => Object.fromEntries(Object.entries(config || {})
+        .filter(([key]) => keys.includes(key) == (id == 'telemetry')))
+
+      return !this.$util.isEqual(pick(this.initial_config), pick(this.config))
+    },
+
+
+    tab_unsaved(id) {
+      switch (id) {
+      case 'machine':
+        return this.name_modified || this.tab_config_modified(id)
+      case 'telemetry': return this.tab_config_modified(id)
+      }
+    },
+
+
+    tab_invalid(id) {
+      switch (id) {
+      case 'machine':
+        return !this.valid_name || !this.wu_display_limit_valid ||
+          !(this.$refs.common || {valid: true}).valid
+      case 'telemetry': return !(this.$refs.telemetry || {valid: true}).valid
+      }
+    },
+
+
+    tab_class(id) {
+      let invalid = this.tab_invalid(id)
+
+      return {
+        'tab-active':  this.tab == id,
+        'tab-invalid': invalid,
+        'tab-unsaved': !invalid && this.tab_unsaved(id)
+      }
+    },
+
+
+    // A path, so that the tab is also a link
+    tab_path(id) {return this.$router.resolve({params: {tab: id}}).path},
+
+
+    // Explains a mark, no title without one
+    tab_title(t) {
+      if (this.tab_invalid(t.id)) return t.name + ': a value is not valid'
+      if (this.tab_unsaved(t.id)) return t.name + ': unsaved changes'
     },
 
 
@@ -410,10 +534,12 @@ export default {
     },
 
 
-    // Lets only the next navigation through without asking
+    // Lets only the next navigation through without asking, a tab change
+    // does not count
     approve() {
       this.confirmed = true
-      let done = this.$router.afterEach(() => {
+      let done = this.$router.afterEach((to, from) => {
+        if (same_page(to, from)) return
         done()
         this.confirmed = false
       })
@@ -474,7 +600,7 @@ Dialog.new-group-dialog(ref="new_group_dialog", buttons="Create")
     input(v-model="new_group", focused,
       @keyup.enter="$refs.new_group_dialog.close('create')")
 
-.settings-view.page-view
+.settings-view.page-view(:class="{tabbed: 1 < tabs.length}", ref="page")
   ViewHeader(title="Settings", :subtitle="mach.get_name()")
     template(v-slot:actions)
       Button(@click="cancel", text="Cancel", icon="times")
@@ -482,8 +608,13 @@ Dialog.new-group-dialog(ref="new_group_dialog", buttons="Create")
       Button(:disabled="!modified || saving", @click="save()", success,
         text="Save", icon="save")
 
+  .tab-menu(v-if="1 < tabs.length")
+    Button(v-for="t in tabs", :key="t.id", :text="t.name", :icon="t.icon",
+      :class="tab_class(t.id)", :title="tab_title(t)", replace,
+      :route="tab_path(t.id)")
+
   .view-body
-    fieldset.settings.view-panel(v-if="logged_in")
+    fieldset.settings.view-panel(v-if="logged_in", v-show="tab == 'machine'")
       legend
         HelpBalloon(name="Machine")
           p You can rename the machine or unlink a machine you no longer use.
@@ -505,11 +636,12 @@ Dialog.new-group-dialog(ref="new_group_dialog", buttons="Create")
           Button.button-icon(v-if="!linked", @click="link", icon="link",
             :disabled="!valid_name", title="Link machine to this account")
 
-    fieldset.settings.view-panel(v-if="!logged_in && config")
+    fieldset.settings.view-panel(v-if="!logged_in && config",
+      v-show="tab == 'machine'")
       legend Account Settings
       CommonSettings(:config="config", ref="common")
 
-    .view-pane(v-if="connected && config")
+    .view-pane(v-if="connected && config", v-show="tab == 'machine'")
       fieldset.view-panel.resource-groups(v-if="advanced")
         legend Resource Groups
 
@@ -532,7 +664,8 @@ Dialog.new-group-dialog(ref="new_group_dialog", buttons="Create")
         GroupSettings(:config="groups[group]", :cpus="available_cpus",
           :gpus="gpus", :advanced="advanced", :version="version")
 
-    fieldset.settings.view-panel(v-if="connected && has_wu_display_limit")
+    fieldset.settings.view-panel(v-if="connected && has_wu_display_limit",
+      v-show="tab == 'machine'")
       legend Work Units
 
       .setting
@@ -547,16 +680,46 @@ Dialog.new-group-dialog(ref="new_group_dialog", buttons="Create")
           :class="{error: !wu_display_limit_valid}",
           title="Number of finished Work Units to show")
 
-    GPUTelemetrySettings(v-if="connected && has_telemetry",
+    GPUTelemetrySettings(v-if="show_telemetry", v-show="tab == 'telemetry'",
       ref="telemetry", :config="config", :gpus="telemetry_gpus")
 
-  .actions
+  .actions(v-show="tab == 'machine'")
     Button.button-icon(v-if="!advanced && connected", @click="unlock",
       icon="lock", title="Unlock advanced settings")
 </template>
 
 <style lang="stylus">
 .settings-view
+  // The tab menu left of the panels, header and actions across.  Too wide
+  // panels overflow the page, the header and actions keep its width.
+  &.tabbed
+    display grid
+    grid-template-columns auto minmax(0, 1fr)
+
+    > .view-header, > .actions
+      grid-column 1 / -1
+
+    > .view-body
+      min-width min-content
+
+  // Room for a mark on every tab, so a mark does not widen the menu
+  .tab-menu > .button::after
+    content ''
+    width 1em
+    margin-left auto
+    text-align center
+    font-family FontAwesome
+    font-weight normal
+
+  .tab-menu > .button.tab-unsaved::after
+    content '\f111' // fa-circle
+    transform scale(0.5)
+    color var(--link-alt)
+
+  .tab-menu > .button.tab-invalid::after
+    content '\f06a' // fa-exclamation-circle
+    color var(--error-color)
+
   .view-body .view-pane
     display flex
     flex-direction row

@@ -190,6 +190,26 @@ body
     .view-body
       overflow hidden
 
+// Vertical tab menu left of a page's panels
+.page-view .tab-menu
+  display flex
+  flex-direction column
+  gap calc(var(--gap) / 2)
+
+  > .button
+    justify-content left
+    text-transform capitalize
+    color var(--panel-fg)
+    background 0
+    border-radius 0
+    border-bottom 3px solid var(--header-bg)
+
+    &:hover
+      border-color var(--link-alt)
+
+    &.tab-active
+      border-color var(--link-color)
+
 body:not(.theme-wide) .page-view
   max-width 60em
 
