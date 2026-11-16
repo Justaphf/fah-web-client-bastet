@@ -39,8 +39,15 @@ export default {
     },
 
 
+    energy_rate_valid() {
+      let rate = this.config.energy_rate
+      return !this.has('energy_rate') ||
+        (typeof rate == 'number' && isFinite(rate) && 0 <= rate)
+    },
+
+
     valid() {
-      return this.interval_valid
+      return this.interval_valid && this.energy_rate_valid
     }
   },
 
@@ -97,6 +104,23 @@ fieldset.settings.view-panel.gpu-telemetry-settings
     input(v-model.number="config.gpu_telemetry_interval", type="number",
       min="1", max="60", step="1", :class="{error: !interval_valid}",
       title="GPU telemetry sampling interval in seconds")
+
+  .setting(v-if="has('gpu_telemetry_history')")
+    HelpBalloon(name="Keep History"): p.
+      Keep statistics of the monitored GPUs.  They are shown on the Work Unit
+      details page, also after the Work Unit has finished.
+
+    input(v-model="config.gpu_telemetry_history", type="checkbox",
+      title="Keep GPU telemetry history")
+
+  .setting(v-if="has('energy_rate')")
+    HelpBalloon(name="Energy Rate ($/kWh)"): p.
+      Electricity price used to estimate the cost of the GPU energy recorded
+      on this machine, for its Work Units.
+
+    input(v-model.number="config.energy_rate", type="number", min="0",
+      step="any", :class="{error: !energy_rate_valid}",
+      title="Electricity price in dollars per kWh")
 </template>
 
 <style lang="stylus">

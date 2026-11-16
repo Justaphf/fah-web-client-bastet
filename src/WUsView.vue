@@ -83,6 +83,7 @@ export default {
 
   data() {
     return {
+      scroll_width: 0,
       filter: {
         machine:   'Any',
         project:   'Any',
@@ -98,9 +99,48 @@ export default {
 
 
   computed: {
+    // Set on the account's Appearance page
+    account_gpu_columns() {
+      let keys = (this.$adata.config || {}).wu_columns
+      if (this.$account.logged_in && Array.isArray(keys)) return keys
+    },
+
+
+    gpu_columns() {return Unit.load_gpu_columns(this.account_gpu_columns)},
+
+
     columns() {
-      return ['Machine', 'Project', 'Core', 'OS', 'Status', 'Progress',
-        'TPF', 'PPD', 'Assign Time']
+      let columns = ['Machine', 'Project', 'Core', 'OS', 'Status', 'Progress',
+        'TPF', 'PPD']
+
+      if (this.has_gpu_stats)
+        for (let key of this.gpu_columns) {
+          let c = Unit.parse_gpu_stat_key(key)
+          if (c.total || this.gpu_stat_fields.includes(c.field))
+            columns.push('stat:' + key)
+        }
+
+      return columns.concat(['Assign Time'])
+    },
+
+
+    // Only machines recording GPU telemetry history get the extra columns
+    has_gpu_stats() {
+      return this.wus.some(unit => unit.gpu_stats || unit.gpu_stats_pending)
+    },
+
+
+    has_recorded_stats() {return this.wus.some(unit => unit.gpu_stats)},
+
+
+    // Numeric statistics recorded for any listed Work Unit
+    gpu_stat_fields() {
+      let names = new Set()
+
+      for (let unit of this.wus)
+        for (let name of unit.gpu_stat_names) names.add(name)
+
+      return Unit.sort_gpu_stat_fields([...names])
     },
 
 
@@ -193,15 +233,118 @@ export default {
     credit_estimated_sum() {
       return Math.round(this.historical_stats.credit).toLocaleString()
     },
+
+
+    gpu_energy_totals() {return Unit.format_gpu_energy_totals(this.wus)},
+    gpu_energy_coverage() {return Unit.format_gpu_energy_coverage(this.wus)},
+    gpu_cost_coverage()   {return Unit.format_gpu_cost_coverage(this.wus)},
+
+
+    gpu_energy_total() {
+      return this.with_coverage(this.gpu_energy_totals.energy,
+                                this.gpu_energy_coverage)
+    },
+
+
+    gpu_cost_total() {
+      return this.with_coverage(this.gpu_energy_totals.cost,
+                                this.gpu_cost_coverage)
+    },
   },
 
   created() {this.default_filter = Object.assign({}, this.filter)},
-  mounted() {this.$machs.wus_enable(true)},
+
+
+  mounted() {
+    this.$machs.wus_enable(true)
+    this.scroll_x = 0
+    this.observer = new ResizeObserver(this.on_resize)
+    this.observer.observe(this.$refs.units)
+    this.observer.observe(this.$refs.units.parentNode)
+  },
+
+
+  unmounted() {this.observer.disconnect()},
 
 
   methods: {
     reset() {Object.assign(this.filter, this.default_filter)},
-    format_tpf(tpf) {return tpf ? this.$util.time_interval(tpf) : '???'}
+    format_tpf(tpf) {return tpf ? this.$util.time_interval(tpf) : '???'},
+
+
+    // A history wider than the page is moved under its own bar instead of
+    // scrolling in a box, so its column headers can still stick to the window.
+    // Skipped while the page is kept alive but not shown.
+    on_resize() {
+      let units = this.$refs.units
+      if (!units.isConnected) return
+
+      let width = units.getBoundingClientRect().width
+      let box = units.parentNode.getBoundingClientRect().width
+      this.scroll_width = box + 1 <= width ? width : 0
+
+      if (!this.scroll_width) {
+        this.scroll_x = 0
+        units.style.translate = ''
+
+      } else if (this.$refs.bar) this.$refs.bar.scrollLeft = this.scroll_x
+    },
+
+
+    on_scroll(e) {
+      this.scroll_x = e.target.scrollLeft
+      this.$refs.units.style.translate = -this.scroll_x + 'px'
+    },
+
+
+    scroll_by(dx) {
+      let bar = this.$refs.bar
+      if (!bar || !dx) return false
+      let x = bar.scrollLeft
+      bar.scrollLeft = x + dx
+      return bar.scrollLeft != x
+    },
+
+
+    on_wheel(e) {
+      let dx = e.deltaX
+      let dy = e.deltaY
+      if (e.shiftKey && !dx) [dx, dy] = [dy, 0]
+      if (Math.abs(dy) < Math.abs(dx) && this.scroll_by(dx)) e.preventDefault()
+    },
+
+
+    // Brings a focused link off to the side into view
+    on_focus(e) {
+      let r = e.target.getBoundingClientRect()
+      let box = this.$refs.units.parentNode.getBoundingClientRect()
+      this.scroll_by(Math.min(r.left - box.left, 0) +
+                     Math.max(r.right - box.right, 0))
+    },
+
+
+    // A touch moves the table only if its first move is sideways, and never
+    // with more than one finger
+    on_touch(e) {
+      if (1 < e.touches.length) return this.sideways = false
+
+      let t = e.touches[0]
+      let dx = this.touch_x - t.clientX
+      let dy = this.touch_y - t.clientY
+
+      if (e.type == 'touchstart') this.sideways = undefined
+      else if (this.sideways == undefined)
+        this.sideways = Math.abs(dy) < Math.abs(dx)
+
+      if (this.sideways) this.scroll_by(dx)
+      this.touch_x = t.clientX
+      this.touch_y = t.clientY
+    },
+
+
+    with_coverage(total, note) {
+      return total && note ? `${total} ${note}` : total
+    }
   }
 }
 </script>
@@ -307,15 +450,45 @@ export default {
               awarded by Folding@home.
           td(colspan="3") {{credit_estimated_sum}}
 
+        template(v-if="has_recorded_stats")
+          tr
+            th
+              HelpBalloon(name="Energy (Wh)"): p.
+                Total GPU energy recorded for the listed Work Units.  A Work
+                Unit is included only when every GPU assigned to it has energy
+                statistics.  When only some listed finished Work Units are
+                included, "(n of m units)" gives how many.
+            td(colspan="3") {{gpu_energy_total}}
+
+          tr
+            th
+              HelpBalloon(name="Cost"): p.
+                Estimated cost of that energy at each machine's energy rate.
+                Machines which do not report a rate are not included.  "(n of
+                m units)" counts the listed finished Work Units with both
+                statistics and a rate.
+            td(colspan="3") {{gpu_cost_total}}
+
     HelpBalloon.header-title(name="Recent Work Unit History"): p.
-      A log of recent work WUs completed by your machines.
+      A log of recent work WUs completed by your machines.  GPU statistics
+      columns are recorded when the client saves, about every five minutes
+      starting about five minutes after the core starts, and are final once
+      the Work Unit ends.  Energy and Cost show live readings while a Work
+      Unit runs.
 
-    .units-view(:style="Unit.get_column_grid_style(columns, ' 1fr')")
-      UnitHeaders(:columns="columns") Info
+    .units-scroll(:class="{'units-overflow': scroll_width}")
+      .units-view(ref="units", v-on="scroll_width ? {wheel: on_wheel} : {}",
+        @focusin="on_focus", @touchstart.passive="on_touch",
+        @touchmove.passive="on_touch",
+        :style="Unit.get_column_grid_style(columns, ' 1fr')")
+        UnitHeaders(:columns="columns") Info
 
-      UnitsView(:units="wus", :columns="columns", v-slot="{unit}")
-        Button.button-icon(icon="info-circle",
-          :route="`/unit/${unit.id}`", title="View Work Unit details")
+        UnitsView(:units="wus", :columns="columns", v-slot="{unit}")
+          Button.button-icon(icon="info-circle",
+            :route="`/unit/${unit.id}`", title="View Work Unit details")
+
+      .units-scrollbar(v-if="scroll_width", ref="bar", @scroll="on_scroll")
+        div(:style="{width: scroll_width + 'px'}")
 </template>
 
 <style lang="stylus">
@@ -342,8 +515,27 @@ export default {
       tr > :not(:first-child)
         width 33%
 
+    .units-scroll.units-overflow
+      overflow-x clip
+
+      > .units-view
+        touch-action pan-y pinch-zoom
+
+      // Clear of the bar when focused at the window's bottom edge
+      a
+        scroll-margin-bottom 2em
+
+    .units-scrollbar
+      position sticky
+      bottom 0
+      overflow-x auto
+
+      > div
+        height 1px
+
     .units-view
       isolation isolate
+      min-width min-content
 
       > .unit-header
         position sticky

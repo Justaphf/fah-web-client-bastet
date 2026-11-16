@@ -27,8 +27,12 @@
 -->
 
 <script>
+import GPUStatsFieldset from './GPUStatsFieldset.vue'
+
+
 export default {
   props: ['unitID'],
+  components: {GPUStatsFieldset},
 
 
   data() {
@@ -59,6 +63,9 @@ export default {
 
       return groups
     },
+
+
+    mach() {return (this.unit || {}).mach},
   },
 
 
@@ -71,6 +78,11 @@ export default {
 
 
   methods: {
+    gpu_description(id) {
+      return ((this.mach.get_info().gpus || {})[id] || {}).description || id
+    },
+
+
     async load_credits() {
       let u = this.unit
       if (!u || !u.project) return
@@ -132,6 +144,13 @@ export default {
 
       .info-group(v-for="group of gpu_telemetry")
         unit-info(v-for="field of group", :unit="unit", :field="field")
+
+      .info-group(v-if="unit.gpu_energy")
+        unit-info(:unit="unit", field="GPU Energy")
+        unit-info(v-if="unit.gpu_cost", :unit="unit", field="GPU Cost")
+
+    GPUStatsFieldset(v-for="(stats, id) in unit.gpu_stats", :key="id",
+      :unit="unit", :id="id", :name="gpu_description(id)", :stats="stats")
 
     fieldset.view-panel
       legend Logged Credits

@@ -37,6 +37,9 @@ function copy_config(config = {}) {
     wide:              !!config.wide,
     compact:           !!config.compact,
     hide_empty_groups: !!config.hide_empty_groups,
+    // An empty list is kept as none
+    wu_columns:        Array.isArray(config.wu_columns) &&
+      config.wu_columns.length ? [...config.wu_columns] : undefined,
   }
 }
 

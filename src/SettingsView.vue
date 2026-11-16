@@ -33,7 +33,8 @@ import GPUTelemetrySettings from './GPUTelemetrySettings.vue'
 
 
 // Clients may report only some of these keys
-const telemetry_keys = ['gpu_telemetry_interval']
+const telemetry_keys = [
+  'gpu_telemetry_interval', 'gpu_telemetry_history', 'energy_rate']
 
 
 function copy_keys(config, keys) {
