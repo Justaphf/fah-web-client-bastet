@@ -28,17 +28,25 @@
 
 <script>
 import GPUStatsFieldset from './GPUStatsFieldset.vue'
+import GPUTrendChart    from './GPUTrendChart.vue'
+import GPUTrendRange    from './GPUTrendRange.vue'
+import GPUSeries        from './gpu-series.js'
+
+
+const trend_fields = ['power', 'gpu_clock', 'gpu_util', 'temp']
 
 
 export default {
   props: ['unitID'],
-  components: {GPUStatsFieldset},
+  components: {GPUStatsFieldset, GPUTrendChart, GPUTrendRange},
 
 
   data() {
     return {
       loading: true,
-      credits: []
+      credits: [],
+      ranges: {},
+      now: Math.floor(Date.now() / 1000)
     }
   },
 
@@ -66,18 +74,125 @@ export default {
 
 
     mach() {return (this.unit || {}).mach},
+
+
+    // Clients which report the bucket length answer the series command
+    series_supported() {
+      let mach = this.mach
+      return !!mach && typeof mach.request_series == 'function' &&
+        mach.get_config().gpu_telemetry_bucket != undefined &&
+        0 < (this.unit.assign.gpus || []).length
+    },
+
+
+    history_supported() {
+      return this.series_supported &&
+        this.mach.get_config().gpu_telemetry_history_days != undefined
+    },
+
+
+    // undefined until the client replies, null if nothing was recorded
+    series() {
+      if (this.series_supported)
+        return (this.mach.get_data().series || {})[this.unit.id]
+    },
+
+
+    trends() {
+      let trends = []
+
+      for (const [id, series] of Object.entries(this.series || {})) {
+        let rows   = series.rows || []
+        let fields = trend_fields.filter(field => {
+          let col = 2 + series.fields.indexOf(field)
+          return 1 < col && rows.some(row => row[col])
+        })
+
+        // A zoomed window stays put while the series grows
+        if (fields.length)
+          trends.push({id, series, fields,
+                       range: GPUSeries.window(this.ranges[id], series)})
+      }
+
+      return trends
+    }
   },
 
 
   watch: {
-    'unit.project'() {this.load_credits()}
+    'unit.project'() {this.load_credits()},
+    'unit.id'()        {this.ranges = {}; this.show_series()},
+    mach()             {this.ranges = {}; this.show_series()},
+    series_supported() {this.show_series()},
+    // Fetch the last buckets when the unit stops running
+    'unit.state'()     {this.request_series()}
   },
 
 
-  mounted() {this.load_credits()},
+  mounted() {
+    this.load_credits()
+    this.request_series()
+    this.series_timer = setInterval(this.update_series, 60 * 1000)
+  },
+
+
+  beforeUnmount() {
+    clearInterval(this.series_timer)
+    this.clear_series()
+  },
 
 
   methods: {
+    // Keep the time current and refresh the series while buckets are added,
+    // else retry until the client replies
+    update_series() {
+      this.now = Math.floor(Date.now() / 1000)
+      if (this.series === undefined ||
+          ['RUN', 'FINISH'].includes((this.unit || {}).state))
+        this.request_series()
+    },
+
+
+    // Request the series when another unit or machine is shown
+    show_series() {
+      let mach = this.series_supported ? this.mach : undefined
+      if (mach != this.series_mach || (mach && this.unit.id != this.series_id))
+        this.request_series()
+    },
+
+
+    // Machines keep only the series last requested
+    request_series() {
+      let mach = this.series_supported ? this.mach : undefined
+      if (mach != this.series_mach) this.clear_series()
+      if (!mach) return
+
+      this.series_mach = mach
+      this.series_id   = this.unit.id
+      mach.request_series(this.series_id)
+    },
+
+
+    clear_series() {
+      if (this.series_mach) this.series_mach.clear_series()
+      this.series_mach = this.series_id = undefined
+    },
+
+
+    // At this unit's time, marked.  A unit the client still has may grow.
+    history_url(trend) {
+      let mach  = this.mach
+      let days  = mach.get_config().gpu_telemetry_history_days
+      let open  = (mach.get_data().units || []).some(u => u.id == this.unit.id)
+      let query = GPUSeries.unit_query(GPUSeries.range(trend.series), open,
+        trend.series.bucket, GPUSeries.retention(days), this.now)
+
+      query.unit = this.unit.id
+      return mach.get_gpu_history_url(trend.id) + '?' +
+        new URLSearchParams(query)
+    },
+
+
     gpu_description(id) {
       return ((this.mach.get_info().gpus || {})[id] || {}).description || id
     },
@@ -152,6 +267,27 @@ export default {
     GPUStatsFieldset(v-for="(stats, id) in unit.gpu_stats", :key="id",
       :unit="unit", :id="id", :name="gpu_description(id)", :stats="stats")
 
+    template(v-if="series !== undefined")
+      fieldset.view-panel.gpu-trends(v-for="trend in trends", :key="trend.id")
+        legend(:title="trend.id")
+          | {{gpu_description(trend.id)}} Trends
+
+        .gpu-trend-charts
+          GPUTrendChart(v-for="field in trend.fields", :key="field",
+            :series="trend.series", :field="field", :range="trend.range")
+
+        GPUTrendRange(:series="trend.series", :field="trend.fields[0]",
+          :range="trend.range", @update:range="ranges[trend.id] = $event")
+
+        .gpu-history-link(v-if="history_supported")
+          Button(:route="history_url(trend)",
+            text="GPU History", icon="line-chart",
+            title="Show the recorded history of this GPU")
+
+      fieldset.view-panel.gpu-trends(v-if="!trends.length")
+        legend GPU Trends
+        div No history recorded
+
     fieldset.view-panel
       legend Logged Credits
 
@@ -189,4 +325,15 @@ export default {
       max-width 20em
       overflow hidden
       text-overflow ellipsis
+
+  .gpu-trend-charts
+    display grid
+    // Stylus would evaluate min() itself
+    chart-width = unquote('min(100%, 40em)')
+    grid-template-columns repeat(auto-fit, minmax(chart-width, 1fr))
+    gap var(--gap)
+    width 100%
+
+  .gpu-trend-range, .gpu-history-link
+    margin-top var(--gap)
 </style>

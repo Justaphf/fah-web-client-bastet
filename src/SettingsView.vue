@@ -34,7 +34,9 @@ import GPUTelemetrySettings from './GPUTelemetrySettings.vue'
 
 // Clients may report only some of these keys
 const telemetry_keys = [
-  'gpu_telemetry_interval', 'gpu_telemetry_history', 'energy_rate']
+  'gpu_telemetry_interval', 'gpu_telemetry_history', 'gpu_telemetry_continuous',
+  'gpu_telemetry_history_days', 'gpu_telemetry_bucket', 'gpu_telemetry_aging',
+  'energy_rate']
 
 
 function copy_keys(config, keys) {
@@ -298,6 +300,15 @@ export default {
 
       for (let key of telemetry_keys)
         if (key in config) copy[key] = config[key]
+
+      // Copied so that edits do not change the client's data before Save.
+      // Malformed values load as empty or invalid rows rather than NaN.
+      if ('gpu_telemetry_aging' in copy) {
+        let aging = copy.gpu_telemetry_aging
+        copy.gpu_telemetry_aging = !Array.isArray(aging) ? [] :
+          aging.map(tier => ({days:   Number((tier || {}).days)   || 0,
+                              bucket: Number((tier || {}).bucket) || 0}))
+      }
 
       return copy
     },

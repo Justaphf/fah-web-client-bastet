@@ -37,6 +37,17 @@ export default {
 
   computed: {
     info() {return this.mach.get_info()}
+  },
+
+
+  methods: {
+    // Monitored GPUs of clients which keep a GPU history
+    history_url(id, gpu) {
+      let config = this.mach.get_config()
+      if (config.gpu_telemetry_history_days != undefined && gpu.nvml &&
+          (config.gpu_telemetry || {})[id])
+        return this.mach.get_gpu_history_url(id)
+    }
   }
 }
 </script>
@@ -75,7 +86,8 @@ export default {
         info-item(label="Cores", :content="info.cpus")
         info-item(label="Type",  :content="info.cpu")
 
-    GPUFieldset(v-for="(gpu, id) in info.gpus", :gpu="gpu", :id="id")
+    GPUFieldset(v-for="(gpu, id) in info.gpus", :gpu="gpu", :id="id",
+      :history="history_url(id, gpu)")
 </template>
 
 <style lang="stylus">
