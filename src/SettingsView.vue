@@ -30,6 +30,7 @@
 import CommonSettings       from './CommonSettings.vue'
 import GroupSettings        from './GroupSettings.vue'
 import GPUTelemetrySettings from './GPUTelemetrySettings.vue'
+import ClickHouseSettings   from './ClickHouseSettings.vue'
 
 
 // Clients may report only some of these keys
@@ -64,7 +65,9 @@ function same_page(a, b) {
 export default {
   inheritAttrs: false,
   props: ['mach', 'route_tab'],
-  components: {CommonSettings, GroupSettings, GPUTelemetrySettings},
+  components: {
+    CommonSettings, GroupSettings, GPUTelemetrySettings, ClickHouseSettings
+  },
 
 
   data() {
@@ -77,6 +80,7 @@ export default {
       new_group:       '',
       confirmed:       false,
       saving:          false,
+      clickhouse:      null,
       unlocked:        this.$util.retrieve_bool('fah-settings-unlocked'),
 
       confirm_dialog_buttons: [
@@ -154,8 +158,9 @@ export default {
       if (!this.valid_name) return false
       if (!(this.$refs.common || {valid: true}).valid) return false
       if (!(this.$refs.telemetry || {valid: true}).valid) return false
+      if (!(this.clickhouse || {valid: true}).valid) return false
       if (!this.wu_display_limit_valid) return false
-      if (this.name_modified) return true
+      if (this.name_modified || this.clickhouse_modified()) return true
       if (!this.config) return false
       return this.config_modified
     },
@@ -187,6 +192,10 @@ export default {
     has_wu_display_limit() {return 'wu_display_limit' in (this.config || {})},
 
 
+    // Local settings of a direct machine, not part of config
+    has_clickhouse() {return this.mach.is_direct() && !!this.info.clickhouse},
+
+
     wu_display_limit_valid() {
       let limit = (this.config || {}).wu_display_limit
       return !this.has_wu_display_limit ||
@@ -203,6 +212,9 @@ export default {
       if (this.show_telemetry)
         tabs.push({id: 'telemetry', name: 'GPU Telemetry',
                    icon: 'thermometer-half'})
+
+      if (this.has_clickhouse)
+        tabs.push({id: 'tsdb', name: 'External TSDB', icon: 'database'})
 
       return tabs
     },
@@ -401,11 +413,14 @@ export default {
     async save(to) {
       if (this.saving) return
 
-      let saved = this.modified
+      let saved  = this.modified
+      let failed = false
 
       if (saved) {
         let name   = this.name_modified   && this.name
         let config = this.config_modified && this.$util.deepCopy(this.config)
+        let sink   = this.clickhouse_modified() && this.clickhouse
+        let data   = sink && sink.candidate_data()
         let target = this.mach.get_target()
         let left   = false
         let unsent = false
@@ -422,12 +437,18 @@ export default {
 
           // Not sent without a connection, which may be lost during a rename,
           // nor to another client the direct connection was pointed at
-          if (config && !this.mach.is_connected_to(target))
+          if ((config || sink) && !this.mach.is_connected_to(target))
             unsent = true
 
-          else if (config && !unsent) {
-            await this.mach.configure(config)
-            this.initial_config = config
+          else if (!unsent) {
+            if (config) {
+              await this.mach.configure(config)
+              this.initial_config = config
+            }
+
+            if (sink)
+              failed = !this.mach.is_connected_to(target) ||
+                !(await sink.save(data))
           }
 
         } finally {
@@ -439,13 +460,18 @@ export default {
           this.$root.message('error', 'Save Failed', 'The machine is not ' +
             'connected.  Its settings were not saved.')
 
+        if (failed)
+          this.$root.message('error', 'Save Failed', 'The External ' +
+            'Telemetry TSDB settings were not saved.')
+
         // Stay where the user went meanwhile
         if (left) return
       }
 
-      // Shows an invalid field
-      let tab = !saved && this.unsaved() &&
-        ['machine', 'telemetry'].find(id => this.tab_invalid(id))
+      // Shows an invalid field, else what the client answered
+      let invalid = !saved && this.unsaved() &&
+        ['machine', 'telemetry', 'tsdb'].find(id => this.tab_invalid(id))
+      let tab = invalid || (failed && 'tsdb')
 
       if (tab) {
         if (tab != this.tab) await this.$router.replace({params: {tab}})
@@ -461,9 +487,13 @@ export default {
     },
 
 
+    set_clickhouse(c) {this.clickhouse = c},
+    clickhouse_modified() {return !!(this.clickhouse || {}).changed},
+
+
     show_problem() {
-      let field = [...this.$refs.page.querySelectorAll('.error')]
-        .find(e => e.offsetParent)
+      let field = [...this.$refs.page.querySelectorAll('.error, ' +
+        '.clickhouse-messages')].find(e => e.offsetParent)
       if (field) field.scrollIntoView({block: 'center'})
     },
 
@@ -483,6 +513,7 @@ export default {
       case 'machine':
         return this.name_modified || this.tab_config_modified(id)
       case 'telemetry': return this.tab_config_modified(id)
+      case 'tsdb':      return this.clickhouse_modified()
       }
     },
 
@@ -493,6 +524,7 @@ export default {
         return !this.valid_name || !this.wu_display_limit_valid ||
           !(this.$refs.common || {valid: true}).valid
       case 'telemetry': return !(this.$refs.telemetry || {valid: true}).valid
+      case 'tsdb':      return !(this.clickhouse || {valid: true}).valid
       }
     },
 
@@ -520,7 +552,10 @@ export default {
 
 
     // Edits not saved yet, valid or not
-    unsaved() {return this.name_modified || this.config_modified},
+    unsaved() {
+      return this.name_modified || this.config_modified ||
+        this.clickhouse_modified()
+    },
 
 
     cancel() {this.close()},
@@ -682,6 +717,11 @@ Dialog.new-group-dialog(ref="new_group_dialog", buttons="Create")
 
     GPUTelemetrySettings(v-if="show_telemetry", v-show="tab == 'telemetry'",
       ref="telemetry", :config="config", :gpus="telemetry_gpus")
+
+    //- Nothing typed for one client is kept for another
+    ClickHouseSettings(v-if="has_clickhouse", v-show="tab == 'tsdb'",
+      :key="mach.get_id()", :ref="set_clickhouse", :mach="mach",
+      :saving="saving")
 
   .actions(v-show="tab == 'machine'")
     Button.button-icon(v-if="!advanced && connected", @click="unlock",
