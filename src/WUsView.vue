@@ -98,9 +98,48 @@ export default {
 
 
   computed: {
+    // Set on the account's Appearance page
+    account_gpu_columns() {
+      let keys = (this.$adata.config || {}).wu_columns
+      if (this.$account.logged_in && Array.isArray(keys)) return keys
+    },
+
+
+    gpu_columns() {return Unit.load_gpu_columns(this.account_gpu_columns)},
+
+
     columns() {
-      return ['Machine', 'Project', 'Core', 'OS', 'Status', 'Progress',
-        'TPF', 'PPD', 'Assign Time']
+      let columns = ['Machine', 'Project', 'Core', 'OS', 'Status', 'Progress',
+        'TPF', 'PPD']
+
+      if (this.has_gpu_stats)
+        for (let key of this.gpu_columns) {
+          let c = Unit.parse_gpu_stat_key(key)
+          if (c.total || this.gpu_stat_fields.includes(c.field))
+            columns.push('stat:' + key)
+        }
+
+      return columns.concat(['Assign Time'])
+    },
+
+
+    // Only machines recording GPU telemetry history get the extra columns
+    has_gpu_stats() {
+      return this.wus.some(unit => unit.gpu_stats || unit.gpu_stats_pending)
+    },
+
+
+    has_recorded_stats() {return this.wus.some(unit => unit.gpu_stats)},
+
+
+    // Numeric statistics recorded for any listed Work Unit
+    gpu_stat_fields() {
+      let names = new Set()
+
+      for (let unit of this.wus)
+        for (let name of unit.gpu_stat_names) names.add(name)
+
+      return Unit.sort_gpu_stat_fields([...names])
     },
 
 
@@ -193,6 +232,23 @@ export default {
     credit_estimated_sum() {
       return Math.round(this.historical_stats.credit).toLocaleString()
     },
+
+
+    gpu_energy_totals() {return Unit.format_gpu_energy_totals(this.wus)},
+    gpu_energy_coverage() {return Unit.format_gpu_energy_coverage(this.wus)},
+    gpu_cost_coverage()   {return Unit.format_gpu_cost_coverage(this.wus)},
+
+
+    gpu_energy_total() {
+      return this.with_coverage(this.gpu_energy_totals.energy,
+                                this.gpu_energy_coverage)
+    },
+
+
+    gpu_cost_total() {
+      return this.with_coverage(this.gpu_energy_totals.cost,
+                                this.gpu_cost_coverage)
+    },
   },
 
   created() {this.default_filter = Object.assign({}, this.filter)},
@@ -201,7 +257,12 @@ export default {
 
   methods: {
     reset() {Object.assign(this.filter, this.default_filter)},
-    format_tpf(tpf) {return tpf ? this.$util.time_interval(tpf) : '???'}
+    format_tpf(tpf) {return tpf ? this.$util.time_interval(tpf) : '???'},
+
+
+    with_coverage(total, note) {
+      return total && note ? `${total} ${note}` : total
+    }
   }
 }
 </script>
@@ -307,8 +368,31 @@ export default {
               awarded by Folding@home.
           td(colspan="3") {{credit_estimated_sum}}
 
+        template(v-if="has_recorded_stats")
+          tr
+            th
+              HelpBalloon(name="Energy (Wh)"): p.
+                Total GPU energy recorded for the listed Work Units.  A Work
+                Unit is included only when every GPU assigned to it has energy
+                statistics.  When only some listed finished Work Units are
+                included, "(n of m units)" gives how many.
+            td(colspan="3") {{gpu_energy_total}}
+
+          tr
+            th
+              HelpBalloon(name="Cost"): p.
+                Estimated cost of that energy at each machine's energy rate.
+                Machines which do not report a rate are not included.  "(n of
+                m units)" counts the listed finished Work Units with both
+                statistics and a rate.
+            td(colspan="3") {{gpu_cost_total}}
+
     HelpBalloon.header-title(name="Recent Work Unit History"): p.
-      A log of recent work WUs completed by your machines.
+      A log of recent work WUs completed by your machines.  GPU statistics
+      columns are recorded when the client saves, about every five minutes
+      starting about five minutes after the core starts, and are final once
+      the Work Unit ends.  Energy and Cost show live readings while a Work
+      Unit runs.
 
     .units-view(:style="Unit.get_column_grid_style(columns, ' 1fr')")
       UnitHeaders(:columns="columns") Info
