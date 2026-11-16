@@ -32,7 +32,7 @@ import Unit from './unit.js'
 
 export default {
   name: 'UnitHeader',
-  props: ['field', 'sortable', 'dir'],
+  props: ['field', 'sortable', 'dir', 'bare'],
   computed: {
     Unit() {return Unit},
 
@@ -48,7 +48,7 @@ export default {
 <template lang="pug">
 .unit-header(:title="Unit.get_field_desc(field)",
   :class="[Unit.get_field_header_class(field), {'unit-sortable': sortable}]")
-  | {{Unit.get_field_header(field)}}
+  | {{bare ? Unit.get_field_label(field) : Unit.get_field_header(field)}}
 
   //- Always takes space so sorting does not change column widths
   .fa.unit-sort(v-if="sortable", :class="sort_class")
