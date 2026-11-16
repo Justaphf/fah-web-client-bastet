@@ -39,6 +39,11 @@ const value_max    = 1e18
 const text_max     = 256
 
 
+// ClickHouse requests per machine, kept out of the reactive machine as they
+// may carry a password
+const clickhouse_lanes = new WeakMap()
+
+
 function is_num(x, max = value_max) {
   return typeof x == 'number' && Math.abs(x) <= max
 }
@@ -435,6 +440,22 @@ class Machine {
   }
 
 
+  // Only for the direct connection.  Neither requests nor replies are logged,
+  // as they carry local settings and may carry a password.  A connection test
+  // runs beside the other requests, each kind one at a time.  Resolves with
+  // the reply, or undefined if none came within timeout seconds.
+  request_clickhouse(cmd, data = {}, timeout = 30) {
+    return new Promise(resolve => {
+      if (!this.is_direct()) return resolve()
+      let lane = this._clickhouse_lane(cmd)
+      this.chID = (this.chID || 0) + 1
+      let msg = Object.assign({}, data, {cmd, id: this.chID})
+      lane.queue.push({msg, timeout, resolve})
+      this._send_clickhouse(lane)
+    })
+  }
+
+
   visualize_unit(unit) {
     if (this.vizUnit == unit) return
     this.vizUnit = unit
@@ -469,6 +490,7 @@ class Machine {
 
   on_close() {
     this._end_gpu_history()
+    this._end_clickhouse()
     this.state.connected = false
     this.state.last_connected = new Date().getTime()
   }
@@ -478,6 +500,11 @@ class Machine {
 
 
   async on_message(msg) {
+    // Sent only to this browser, the third element echoes the request id
+    if (!this.first && Array.isArray(msg) && typeof msg[0] == 'string' &&
+        msg[0].startsWith('clickhouse'))
+      return msg.length == 3 && this._on_clickhouse(msg[2], msg[1])
+
     console.debug(this.get_name() + ':', msg)
 
     if (this.first) {
@@ -644,6 +671,58 @@ class Machine {
 
     this._end_gpu_history()
     this._send_gpu_history()
+  }
+
+
+  _clickhouse_lanes() {return clickhouse_lanes.get(toRaw(this)) || {}}
+
+
+  _clickhouse_lane(cmd) {
+    let mach = toRaw(this)
+    if (!clickhouse_lanes.has(mach))
+      clickhouse_lanes.set(mach, {test: {queue: []}, other: {queue: []}})
+    let lanes = clickhouse_lanes.get(mach)
+    return lanes[cmd == 'clickhouse_test' ? 'test' : 'other']
+  }
+
+
+  // The payload is only kept until it is sent
+  _send_clickhouse(lane) {
+    if (lane.sent || !lane.queue.length) return
+    if (!this.is_connected()) return this._end_clickhouse()
+
+    let request = lane.queue[0]
+    let {msg, timeout} = request
+    let id = msg.id
+    delete request.msg
+    request.id = id
+    request.timer = setTimeout(() => this._on_clickhouse(id), timeout * 1000)
+    lane.sent = request
+    this.get_conn().send(msg)
+  }
+
+
+  _end_clickhouse() {
+    for (let lane of Object.values(this._clickhouse_lanes())) {
+      if (lane.sent) clearTimeout(lane.sent.timer)
+      lane.sent = undefined
+      for (let request of lane.queue.splice(0)) request.resolve()
+    }
+  }
+
+
+  // A reply after the timeout is dropped
+  _on_clickhouse(id, reply) {
+    let lane = Object.values(this._clickhouse_lanes())
+      .find(lane => lane.sent && lane.sent.id === id)
+    if (!lane) return
+
+    let request = lane.sent
+    clearTimeout(request.timer)
+    lane.sent = undefined
+    lane.queue.shift()
+    request.resolve(reply)
+    this._send_clickhouse(lane)
   }
 
 
