@@ -27,6 +27,9 @@
 -->
 
 <script>
+import Unit from './unit.js'
+
+
 export default {
   props: ['gpu', 'id'],
 
@@ -41,12 +44,35 @@ export default {
 
         cinfo.name      = name
         cinfo.supported = cinfo.compute
-        cinfo.image     = `/images/${cinfo.supported ? '' : 'no-'}${type}.png`
 
         devs.push(cinfo)
       }
 
+      // NVML is a flag only: GPU telemetry, no compute device
+      devs.push({name: 'NVML', supported: !!this.gpu.nvml})
+
       return devs
+    },
+
+
+    telemetry() {
+      if (!this.gpu.telemetry) return []
+
+      let t = Unit.format_gpu_telemetry(this.gpu.telemetry)
+
+      let items = [
+        ['PCIe Link',       t.pcie_link],  ['PCIe Max',        t.pcie_max],
+        ['GPU Clock',       t.gpu_clock],  ['Memory Clock',    t.mem_clock],
+        ['P-State',         t.gpu_pstate], ['Temperature',     t.gpu_temp],
+        ['GPU Load',        t.gpu_load],   ['Memory Load',     t.mem_load],
+        ['Power',           t.gpu_power],  ['Fans',            t.gpu_fans],
+      ].filter(item => item[1])
+
+      let groups = []
+      for (let i = 0; i < items.length; i += 2)
+        groups.push(items.slice(i, i + 2))
+
+      return groups
     }
   }
 }
@@ -66,6 +92,10 @@ fieldset.view-panel.gpu-fieldset
   .info-group
     info-item(label="PCI Device ID", :content="'0x' + gpu.device.toString(16)")
     info-item(label="PCI Vendor ID", :content="'0x' + gpu.vendor.toString(16)")
+
+  .info-group(v-for="group of telemetry")
+    info-item(v-for="[label, content] of group", :label="label",
+      :content="content")
 
   .info-group(v-for="dev of devs")
     info-item(:label="dev.name",

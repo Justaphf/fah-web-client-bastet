@@ -44,6 +44,8 @@ function pad(t, c = ' ', count = 2) {
 
 
 function zpad(t, count = 2) {return pad(t, '0', count)}
+function div(x, y) {return (x / y) >> 0}
+function mod(x, y) {return (x % y) >> 0}
 
 
 class Util {
@@ -342,9 +344,6 @@ class Util {
     if (!isFinite(secs)) return '???'
     if (secs < 0) return '-' + this.time_interval(-secs)
 
-    function div(x, y) {return (x / y) >> 0}
-    function mod(x, y) {return (x % y) >> 0}
-
     if (secs && secs < 0.9995) return Math.round(secs * 1000) + 'ms'
     if (secs < 60) return Math.round(secs) + 's'
     if (secs < 60 * 60) return div(secs, 60) + 'm ' + zpad(mod(secs, 60)) + 's'
@@ -353,6 +352,24 @@ class Util {
 
     return div(secs, 60 * 60 * 24) + 'd ' +
       zpad(div(mod(secs, 60 * 60 * 24), 60 * 60)) + 'h'
+  }
+
+
+  // Like time_interval() but always down to whole seconds
+  time_interval_full(secs) {
+    if (!isFinite(secs)) return '???'
+    if (secs < 0) return '-' + this.time_interval_full(-secs)
+
+    secs = Math.round(secs)
+    let d = div(secs, 60 * 60 * 24)
+    let h = div(mod(secs, 60 * 60 * 24), 60 * 60)
+    let m = div(mod(secs, 60 * 60), 60)
+    let s = mod(secs, 60)
+
+    if (d) return `${d}d ${zpad(h)}h ${zpad(m)}m ${zpad(s)}s`
+    if (h) return `${h}h ${zpad(m)}m ${zpad(s)}s`
+    if (m) return `${m}m ${zpad(s)}s`
+    return s + 's'
   }
 
 

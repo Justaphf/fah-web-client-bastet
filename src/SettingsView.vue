@@ -27,8 +27,13 @@
 -->
 
 <script>
-import CommonSettings from './CommonSettings.vue'
-import GroupSettings  from './GroupSettings.vue'
+import CommonSettings       from './CommonSettings.vue'
+import GroupSettings        from './GroupSettings.vue'
+import GPUTelemetrySettings from './GPUTelemetrySettings.vue'
+
+
+// Clients may report only some of these keys
+const telemetry_keys = ['gpu_telemetry_interval']
 
 
 function copy_keys(config, keys) {
@@ -43,7 +48,7 @@ function copy_keys(config, keys) {
 
 export default {
   props: ['mach'],
-  components: {CommonSettings, GroupSettings},
+  components: {CommonSettings, GroupSettings, GPUTelemetrySettings},
 
 
   data() {
@@ -119,6 +124,7 @@ export default {
     modified() {
       if (!this.valid_name) return false
       if (!(this.$refs.common || {valid: true}).valid) return false
+      if (!(this.$refs.telemetry || {valid: true}).valid) return false
       if (!this.wu_display_limit_valid) return false
       if (this.name_modified) return true
       if (!this.config) return false
@@ -137,6 +143,15 @@ export default {
         gpus.push(Object.assign({id, supported: true}, info))
 
       return gpus
+    },
+
+
+    telemetry_gpus() {return this.gpus.filter(gpu => gpu.nvml)},
+
+
+    has_telemetry() {
+      return (this.config || {}).gpu_telemetry != undefined &&
+        0 < this.telemetry_gpus.length
     },
 
 
@@ -270,12 +285,31 @@ export default {
     },
 
 
+    // Only sent to clients which report these keys
+    get_telemetry_config(config) {
+      if (config.gpu_telemetry == undefined) return {}
+
+      let monitored = {}
+      for (const [id, enabled] of Object.entries(config.gpu_telemetry))
+        if (enabled) monitored[id] = true
+
+      let copy = {gpu_telemetry: monitored}
+
+      for (let key of telemetry_keys)
+        if (key in config) copy[key] = config[key]
+
+      return copy
+    },
+
+
     init() {
       let config = this.data.config
       if (this.config || !config || this.$util.isEmpty(config)) return
 
+      let telemetry = this.get_telemetry_config(config)
       let limit = config.wu_display_limit
       config = this.logged_in ? {} : this.get_account_config(config)
+      Object.assign(config, telemetry)
       if (limit != undefined) config.wu_display_limit = limit
 
       if (!this.data.groups)
@@ -500,6 +534,9 @@ Dialog.new-group-dialog(ref="new_group_dialog", buttons="Create")
           min="1", max="2000", step="1",
           :class="{error: !wu_display_limit_valid}",
           title="Number of finished Work Units to show")
+
+    GPUTelemetrySettings(v-if="connected && has_telemetry",
+      ref="telemetry", :config="config", :gpus="telemetry_gpus")
 
   .actions
     Button.button-icon(v-if="!advanced && connected", @click="unlock",

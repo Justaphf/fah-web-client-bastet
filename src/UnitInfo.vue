@@ -35,8 +35,9 @@ export default {
 
 <template lang="pug">
 .info-item
-  label: unit-header(:field="field")
-  span: unit-field(:unit="unit", :field="field")
+  label: unit-header(:field="field", :bare="true")
+  span: unit-field(:unit="unit", :field="field",
+    :content="unit.get_field_text(field)")
 </template>
 
 <style lang="stylus">
