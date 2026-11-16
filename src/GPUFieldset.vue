@@ -31,7 +31,7 @@ import Unit from './unit.js'
 
 
 export default {
-  props: ['gpu', 'id'],
+  props: ['gpu', 'id', 'history'],
 
 
   computed: {
@@ -97,6 +97,10 @@ fieldset.view-panel.gpu-fieldset
     info-item(v-for="[label, content] of group", :label="label",
       :content="content")
 
+  .gpu-history-link(v-if="history")
+    Button(:route="history", text="GPU History", icon="line-chart",
+      title="Show the recorded history of this GPU")
+
   .info-group(v-for="dev of devs")
     info-item(:label="dev.name",
       :content="(dev.supported ? '' : 'un') + 'supported'")
@@ -107,4 +111,6 @@ fieldset.view-panel.gpu-fieldset
 </template>
 
 <style lang="stylus">
+.gpu-fieldset .gpu-history-link
+  margin var(--gap) 0
 </style>

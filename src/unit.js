@@ -486,6 +486,12 @@ class Unit {
   static format_stat_mean(v) {return is_number(v) ? v.toFixed(1) : ''}
 
 
+  // Display name of a finished unit's result
+  static result_text(result) {
+    return status[String(result).toUpperCase()] || result
+  }
+
+
   // Rare states stay visible instead of rounding to zero
   static format_fraction(f) {
     if (0 < f && f < 0.0005) return '<0.1 %'

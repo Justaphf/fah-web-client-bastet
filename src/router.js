@@ -38,6 +38,7 @@ import LogView            from './LogView.vue'
 import MachineMux         from './MachineMux.vue'
 import MachineDetailsView from './MachineDetailsView.vue'
 import UnitDetailsView    from './UnitDetailsView.vue'
+import GPUHistoryView     from './GPUHistoryView.vue'
 import AccountView        from './AccountView.vue'
 import VerifyView         from './VerifyView.vue'
 import ResetView          from './ResetView.vue'
@@ -91,6 +92,7 @@ export default createRouter({
         {path: 'settings',         component: SettingsView},
         {path: 'details',          component: MachineDetailsView},
         {path: 'view/:unitID',     component: Visualization,   props: true},
+        {path: 'gpu-history/:gpu?', component: GPUHistoryView, props: true},
         {
           path: 'log',
           component: LogView,

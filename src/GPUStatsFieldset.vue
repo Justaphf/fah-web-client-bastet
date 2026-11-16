@@ -31,17 +31,23 @@ import Unit from './unit.js'
 
 
 export default {
-  props: ['unit', 'id', 'name', 'stats'],
+  props: ['unit', 'id', 'name', 'stats', 'span'],
 
 
   computed: {
     s() {return Unit.format_gpu_stats(this.stats, this.unit.energy_rate)},
 
 
+    // Recorded time of a span of wall time, else of the unit's run time
     coverage() {
       let seconds = this.s.seconds
       if (seconds == undefined) return ''
-      return Unit.format_coverage(seconds, this.s.run_time)
+      if (this.span == undefined)
+        return Unit.format_coverage(seconds, this.s.run_time)
+
+      let util = this.$util
+      return `${util.time_interval(seconds)} of ` +
+        util.time_interval(this.span)
     }
   }
 }
@@ -50,9 +56,10 @@ export default {
 <template lang="pug">
 fieldset.view-panel.gpu-stats-fieldset
   legend(:title="id")
-    HelpBalloon(:name="`${name} Statistics`"): p.
-      Updated when the client saves the unit, about every 5 minutes, and when
-      it finishes.  Live readings are in the Work Unit section above.
+    HelpBalloon(:name="`${name} Statistics`")
+      slot: p.
+        Updated when the client saves the unit, about every 5 minutes, and
+        when it finishes.  Live readings are in the Work Unit section above.
 
   .gpu-stats-table(v-if="s.rows.length")
     table.view-table
