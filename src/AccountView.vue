@@ -187,7 +187,7 @@ Dialog(:buttons="confirm_dialog_buttons", ref="confirm_dialog")
         title="Save your changes and go back to the main page")
 
   .view-body(v-if="$adata")
-    .account-menu
+    .tab-menu
       Button(v-for="t in tabs", :route="t.route", replace, :icon="t.icon",
         :text="t.name", :class="{'tab-active': tab == t.route}")
 
@@ -198,25 +198,6 @@ Dialog(:buttons="confirm_dialog_buttons", ref="confirm_dialog")
 <style lang="stylus">
 .account-view .view-body
   flex-direction row
-
-  .account-menu
-    display flex
-    flex-direction column
-    gap calc(var(--gap) / 2)
-
-    > .button
-      justify-content left
-      text-transform capitalize
-      color var(--panel-fg)
-      background 0
-      border-radius 0
-      border-bottom 3px solid var(--header-bg)
-
-      &:hover
-        border-color var(--link-alt)
-
-      &.tab-active
-        border-color var(--link-color)
 
   fieldset.settings .setting > label
     width 10em

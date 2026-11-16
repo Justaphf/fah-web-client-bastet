@@ -89,7 +89,11 @@ export default createRouter({
       component: MachineMux,
       children: [
         {path: '',                 redirect: '/'},
-        {path: 'settings',         component: SettingsView},
+        {
+          path: 'settings/:tab?',
+          component: SettingsView,
+          props: route => ({route_tab: route.params.tab})
+        },
         {path: 'details',          component: MachineDetailsView},
         {path: 'view/:unitID',     component: Visualization,   props: true},
         {path: 'gpu-history/:gpu?', component: GPUHistoryView, props: true},
