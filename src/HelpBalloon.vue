@@ -89,6 +89,7 @@ label.help-balloon(@click="active = !active", :class="{'help-up': up}")
 
   .help-overlay
     position fixed
+    z-index 50
     top 0
     left 0
     width 100vw
@@ -109,6 +110,7 @@ label.help-balloon(@click="active = !active", :class="{'help-up': up}")
 
   > span
     position fixed
+    z-index 50
     display inline-block
     width 0.5em
     margin-left 0.5em
