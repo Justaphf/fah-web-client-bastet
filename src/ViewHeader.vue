@@ -51,12 +51,18 @@ export default {
 
 
   mounted() {
+    // On document to run before window listeners such as the machine menu's
+    if (!this.$slots.actions) document.addEventListener('keydown', this.on_key)
+
     this.observer = new ResizeObserver(this.on_resize)
     this.observer.observe(this.$el)
   },
 
 
-  unmounted() {this.observer.disconnect()},
+  unmounted() {
+    document.removeEventListener('keydown', this.on_key)
+    this.observer.disconnect()
+  },
 
 
   methods: {
@@ -70,6 +76,31 @@ export default {
       let height = this.$el.getBoundingClientRect().height
       document.documentElement.style
         .setProperty('--view-header-height', height + 'px')
+    },
+
+
+    overlay_open() {
+      const overlays =
+        '.dialog-overlay, .help-overlay, .machine-menu, .pacify-overlay'
+
+      for (let e of document.querySelectorAll(overlays))
+        if (e.getClientRects().length) return true
+
+      return false
+    },
+
+
+    on_key(e) {
+      if (e.key != 'Escape' || e.repeat || e.defaultPrevented) return
+      if (e.ctrlKey || e.altKey || e.shiftKey || e.metaKey) return
+
+      let t = e.target
+      if (!t.closest || t.isContentEditable) return
+      if (t.closest('input, textarea, select')) return
+      if (this.overlay_open()) return
+
+      e.preventDefault()
+      this.close()
     },
 
 
