@@ -50,8 +50,27 @@ export default {
   },
 
 
+  mounted() {
+    this.observer = new ResizeObserver(this.on_resize)
+    this.observer.observe(this.$el)
+  },
+
+
+  unmounted() {this.observer.disconnect()},
+
+
   methods: {
     close() {this.$router.back()},
+
+
+    // Lets page content stay clear of the header.  Skipped while the page is
+    // kept alive but not shown.
+    on_resize() {
+      if (!this.$el.isConnected) return
+      let height = this.$el.getBoundingClientRect().height
+      document.documentElement.style
+        .setProperty('--view-header-height', height + 'px')
+    },
 
 
     async confirm_team_url(url) {
@@ -176,6 +195,16 @@ export default {
         &:hover
           &:not(.button-disabled)
             color var(--link-color)
+
+// Stays at the top while the page scrolls.  The shadow, clipped to the
+// header's height, hides content scrolling past beside it, even content
+// wider than the page, and through the rounded corners.
+.page-view:not(.fixed-view) > .view-header
+  position sticky
+  top 0
+  z-index 10
+  box-shadow 0 0 0 10000px var(--body-bg)
+  clip-path inset(0 -10000px)
 
 @media (max-width 800px)
   .page-view .view-header
